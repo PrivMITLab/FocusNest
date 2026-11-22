@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FocusNest — Own Your Time. Protect Your Focus.</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="brand">
+      <span class="logo-dot"></span>
+      <span>FocusNest</span>
+    </div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#faq">FAQ</a>
+      <a href="#download" class="btn-sm">Download</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">100% FREE • OPEN SOURCE • OFFLINE-FIRST ANDROID</p>
+      <h1>Own Your Time.<br />Protect Your Focus.</h1>
+      <p class="lead">
+        FocusNest combines real Android screen-time insights, reboot-persistent Pomodoro &amp; Focus sessions,
+        app &amp; local DNS website blocking, 11 mindful unlock challenges, and NFC/QR tokens—with zero ads,
+        zero trackers, and no internet permission.
+      </p>
+      <div class="cta-row">
+        <a href="#download" class="btn-primary">Get FocusNest v1.0</a>
+        <a href="#architecture" class="btn-secondary">Explore Architecture</a>
+      </div>
+    </div>
+    <div class="hero-preview">
+      <div class="phone-card">
+        <div class="ring-mock">
+          <span>1h 42m</span>
+          <small>of 3h daily goal</small>
+        </div>
+        <div class="pill-row">
+          <span>Focus: 50m</span>
+          <span>Streak: 7d</span>
+          <span>Blocked: 4</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <h2>Built for Deep Presence</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Real Usage Insights</h3>
+        <p>Powered by Android UsageStatsManager with daily, weekly, monthly, and custom range charts plus CSV, JSON &amp; printable reports.</p>
+      </article>
+      <article class="card">
+        <h3>Configurable App &amp; Profile Blocker</h3>
+        <p>Daily &amp; weekly limits, shared app groups, Study/Work/Sleep profiles, and predictable schedule priority.</p>
+      </article>
+      <article class="card">
+        <h3>11 Mindful Unlock Challenges</h3>
+        <p>Adaptive Math, Sentence Typing, Personal Intention, Offline QR &amp; Barcode Scan, NFC Tag Tap, Cooldowns, and Strict Mode.</p>
+      </article>
+      <article class="card">
+        <h3>Local DNS Website Filter</h3>
+        <p>On-device Android VpnService DNS sinkhole with offline packs. Zero remote servers and zero packet logging.</p>
+      </article>
+      <article class="card">
+        <h3>Reels &amp; Shorts Reduction</h3>
+        <p>Optional, narrowly scoped pause prompts and daily interaction caps for Instagram Reels, YouTube Shorts, and more.</p>
+      </article>
+      <article class="card">
+        <h3>Widgets &amp; Encrypted Backups</h3>
+        <p>3 home screen widgets and portable AES-256-GCM backups encrypted with PBKDF2WithHmacSHA256.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="privacy" class="section alt">
+    <h2>Privacy Philosophy</h2>
+    <p class="section-lead">
+      Digital wellbeing should never require handing your behavioral history to a cloud server.
+      FocusNest omits the Android INTERNET permission entirely. Everything stays on your device in Room SQLite and DataStore.
+    </p>
+  </section>
+
+  <section id="architecture" class="section">
+    <h2>Technical Architecture</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Jetpack Compose &amp; Material 3</h3>
+        <p>Adaptive Compact/Medium/Expanded layouts with custom Outfit, Plus Jakarta Sans &amp; JetBrains Mono typography and 5 accent palettes.</p>
+      </article>
+      <article class="card">
+        <h3>Room + DataStore + WorkManager</h3>
+        <p>18 indexed Room entities, epoch-anchored reboot-safe timer persistence, and 15-minute background usage sync.</p>
+      </article>
+      <article class="card">
+        <h3>Android 8–16 Compatibility</h3>
+        <p>Play-compliant launcher queries, ForegroundService specialUse declarations, BiometricPrompt, and Realme/OEM optimization guidance.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="download" class="section alt">
+    <h2>Download &amp; Build from Source</h2>
+    <p class="section-lead">Build locally with Gradle: <code>gradle :app:assembleDebug</code> &bull; Verify tests: <code>gradle :app:testDebugUnitTest</code></p>
+    <p class="status-note">Experimental note: Short-form Reels/Shorts view-ID detection depends on third-party app layouts and fails safely if updated.</p>
+  </section>
+
+  <section id="faq" class="section">
+    <h2>FAQ &amp; Roadmap</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Is FocusNest really 100% free?</h3>
+        <p>Yes. Every feature—profiles, NFC/QR unlocks, local VPN filtering, and encrypted backups—is free under the MIT License.</p>
+      </article>
+      <article class="card">
+        <h3>What's next on the roadmap?</h3>
+        <p>v1.1 adds per-channel notification rules &amp; Wear OS tiles; v1.2 explores optional self-hosted E2EE device sync.</p>
+      </article>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p>FocusNest • MIT Open Source License • Privacy-First Digital Wellbeing</p>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

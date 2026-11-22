@@ -1,0 +1,480 @@
+package com.example.ui.blocker
+
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.nfc.NfcAdapter
+import android.nfc.Tag
+import android.os.Build
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Nfc
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.example.FocusNestApplication
+import com.example.core.common.KeystoreAndBackupCrypto
+import com.example.core.design.FocusNestLogoMark
+import com.example.core.design.SanctuaryCard
+import com.example.domain.model.UnlockChallengeEngine
+import com.example.domain.model.UnlockChallengeType
+import com.example.feature.challenges.OfflineQrBarcodeScannerDialog
+import com.example.ui.theme.FocusNestTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+class BlockedOverlayActivity : ComponentActivity() {
+  private var nfcAdapter: NfcAdapter? = null
+  private val scannedNfcUidState = mutableStateOf<String?>(null)
+
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    enableEdgeToEdge()
+    nfcAdapter = runCatching { NfcAdapter.getDefaultAdapter(this) }.getOrNull()
+
+    val pkg = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: "com.example.app"
+    val appName = intent.getStringExtra(EXTRA_APP_NAME) ?: pkg.substringAfterLast('.')
+    val reason = intent.getStringExtra(EXTRA_REASON) ?: "Protected by FocusNest"
+    val profileName = intent.getStringExtra(EXTRA_PROFILE_NAME) ?: "FocusNest Shield"
+    val challengeName = intent.getStringExtra(EXTRA_CHALLENGE_TYPE) ?: UnlockChallengeType.REFLECTION_REMINDER.name
+    val isReelsPause = intent.getBooleanExtra(EXTRA_IS_REELS_PAUSE, false)
+    val challengeType = runCatching { UnlockChallengeType.valueOf(challengeName) }.getOrDefault(UnlockChallengeType.REFLECTION_REMINDER)
+
+    val app = application as FocusNestApplication
+
+    setContent {
+      val settings by app.container.preferences.settingsFlow.collectAsState(initial = com.example.core.datastore.FocusNestSettings())
+      val scope = rememberCoroutineScope()
+      var errorText by remember { mutableStateOf<String?>(null) }
+
+      FocusNestTheme(
+        themeMode = settings.themeMode,
+        accentPalette = settings.accentPalette,
+        dynamicColor = settings.dynamicColorEnabled,
+      ) {
+        BlockedScreenContent(
+          appName = appName,
+          profileName = profileName,
+          reason = reason,
+          challengeType = challengeType,
+          isReelsPause = isReelsPause,
+          scannedNfcUid = scannedNfcUidState.value,
+          errorText = errorText,
+          hasEmergencyPasscode = settings.emergencyPasscodeHash.isNotBlank(),
+          emergencyPasscodeHash = settings.emergencyPasscodeHash,
+          onVerifyQrOrBarcode = { code, onSuccess ->
+            scope.launch {
+              val token = app.container.blockerRepository.verifyQrOrBarcodeToken(code)
+              if (token != null) onSuccess()
+              else errorText = "Code not registered in FocusNest NFC & QR Vault."
+            }
+          },
+          onVerifyNfcUid = { uid, onSuccess ->
+            scope.launch {
+              val tag = app.container.blockerRepository.findNfcTag(uid)
+              if (tag != null) onSuccess()
+              else errorText = "NFC tag ($uid) is not registered."
+            }
+          },
+          onGrantUnlock = { minutes, intention ->
+            scope.launch {
+              val (ok, msg) =
+                app.container.blockerRepository.grantTemporaryUnlock(
+                  packageName = pkg,
+                  appName = appName,
+                  challengeType = challengeType,
+                  durationMinutes = minutes,
+                  intentionText = intention,
+                )
+              if (ok) {
+                finish()
+              } else {
+                errorText = msg
+              }
+            }
+          },
+          onReturnHome = {
+            val home = Intent(Intent.ACTION_MAIN).apply {
+              addCategory(Intent.CATEGORY_HOME)
+              flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(home)
+            finish()
+          },
+        )
+      }
+    }
+  }
+
+  override fun onResume() {
+    super.onResume()
+    nfcAdapter?.let { adapter ->
+      runCatching {
+        val pendingIntent =
+          PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_MUTABLE,
+          )
+        adapter.enableForegroundDispatch(this, pendingIntent, null, null)
+      }
+    }
+  }
+
+  override fun onPause() {
+    super.onPause()
+    nfcAdapter?.let { runCatching { it.disableForegroundDispatch(this) } }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    val tag: Tag? =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        intent.getParcelableExtra(NfcAdapter.EXTRA_TAG, Tag::class.java)
+      } else {
+        @Suppress("DEPRECATION")
+        intent.getParcelableExtra(NfcAdapter.EXTRA_TAG)
+      }
+    tag?.id?.let { bytes ->
+      scannedNfcUidState.value = bytes.joinToString("") { "%02X".format(it) }
+    }
+  }
+
+  companion object {
+    const val EXTRA_PACKAGE_NAME = "extra_pkg"
+    const val EXTRA_APP_NAME = "extra_app_name"
+    const val EXTRA_REASON = "extra_reason"
+    const val EXTRA_PROFILE_NAME = "extra_profile_name"
+    const val EXTRA_CHALLENGE_TYPE = "extra_challenge"
+    const val EXTRA_IS_REELS_PAUSE = "extra_reels_pause"
+
+    fun launchPreview(
+      context: Context,
+      packageName: String,
+      appName: String,
+      challengeType: UnlockChallengeType,
+    ) {
+      context.startActivity(
+        Intent(context, BlockedOverlayActivity::class.java).apply {
+          putExtra(EXTRA_PACKAGE_NAME, packageName)
+          putExtra(EXTRA_APP_NAME, appName)
+          putExtra(EXTRA_REASON, "Preview of ${challengeType.label}")
+          putExtra(EXTRA_PROFILE_NAME, "Interactive Preview")
+          putExtra(EXTRA_CHALLENGE_TYPE, challengeType.name)
+        }
+      )
+    }
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BlockedScreenContent(
+  appName: String,
+  profileName: String,
+  reason: String,
+  challengeType: UnlockChallengeType,
+  isReelsPause: Boolean,
+  scannedNfcUid: String?,
+  errorText: String?,
+  hasEmergencyPasscode: Boolean,
+  emergencyPasscodeHash: String,
+  onVerifyQrOrBarcode: (String, () -> Unit) -> Unit,
+  onVerifyNfcUid: (String, () -> Unit) -> Unit,
+  onGrantUnlock: (Int, String) -> Unit,
+  onReturnHome: () -> Unit,
+) {
+  var chosenUnlockMinutes by remember { mutableIntStateOf(5) }
+  var mathChallenge by remember { mutableStateOf(UnlockChallengeEngine.generateMathChallenge(2)) }
+  var mathInput by remember { mutableStateOf("") }
+  val expectedSentence = remember { UnlockChallengeEngine.pickSentence(appName.hashCode()) }
+  var sentenceInput by remember { mutableStateOf("") }
+  var intentionInput by remember { mutableStateOf("") }
+  var cooldownRemaining by remember { mutableIntStateOf(15) }
+  var showScanner by remember { mutableStateOf(false) }
+  var showEmergencyBox by remember { mutableStateOf(false) }
+  var emergencyPin by remember { mutableStateOf("") }
+  var localError by remember { mutableStateOf<String?>(null) }
+
+  LaunchedEffect(challengeType) {
+    if (challengeType == UnlockChallengeType.FIXED_COOLDOWN || challengeType == UnlockChallengeType.REFLECTION_REMINDER) {
+      cooldownRemaining = 10
+      while (cooldownRemaining > 0) {
+        delay(1000L)
+        cooldownRemaining--
+      }
+    }
+  }
+
+  LaunchedEffect(scannedNfcUid) {
+    if (!scannedNfcUid.isNullOrBlank() && challengeType == UnlockChallengeType.NFC_SCAN) {
+      onVerifyNfcUid(scannedNfcUid) { onGrantUnlock(chosenUnlockMinutes, "NFC unlock") }
+    }
+  }
+
+  Scaffold { padding ->
+    Column(
+      modifier =
+        Modifier
+          .fillMaxSize()
+          .padding(padding)
+          .padding(24.dp)
+          .verticalScroll(rememberScrollState())
+          .widthIn(max = 520.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.Center,
+    ) {
+      FocusNestLogoMark(size = 56.dp)
+      Spacer(modifier = Modifier.height(14.dp))
+      Text(
+        text = if (isReelsPause) "Take a Mindful Breath" else "$appName Is Paused",
+        style = MaterialTheme.typography.displayMedium,
+        textAlign = TextAlign.Center,
+      )
+      Spacer(modifier = Modifier.height(6.dp))
+      Text(
+        text = "$profileName • $reason",
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+      )
+      Spacer(modifier = Modifier.height(18.dp))
+
+      Button(
+        onClick = onReturnHome,
+        modifier = Modifier.fillMaxWidth().height(52.dp).testTag("blocked_return_home_btn"),
+      ) {
+        Icon(Icons.Default.Shield, contentDescription = null)
+        Spacer(modifier = Modifier.padding(4.dp))
+        Text("Stay Focused & Leave App")
+      }
+
+      Spacer(modifier = Modifier.height(16.dp))
+
+      SanctuaryCard {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          Text("Unlock Method: ${challengeType.label}", style = MaterialTheme.typography.titleMedium)
+
+          if (challengeType != UnlockChallengeType.STRICT_MODE) {
+            Text("Temporary unlock window:", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+              listOf(1, 5, 10, 15).forEach { mins ->
+                FilterChip(
+                  selected = chosenUnlockMinutes == mins,
+                  onClick = { chosenUnlockMinutes = mins },
+                  label = { Text("${mins}m") },
+                )
+              }
+            }
+          }
+
+          when (challengeType) {
+            UnlockChallengeType.STRICT_MODE -> {
+              Text(
+                "Strict Mode is active. This app remains paused until your schedule or focus session completes.",
+                style = MaterialTheme.typography.bodyMedium,
+              )
+            }
+            UnlockChallengeType.FIXED_COOLDOWN,
+            UnlockChallengeType.REFLECTION_REMINDER -> {
+              Text(
+                if (cooldownRemaining > 0) "Pause and breathe… unlock available in ${cooldownRemaining}s"
+                else "Pause complete. Do you still intend to open $appName?",
+                style = MaterialTheme.typography.bodyMedium,
+              )
+              Button(
+                enabled = cooldownRemaining == 0,
+                onClick = { onGrantUnlock(chosenUnlockMinutes, "Mindful cooldown") },
+                modifier = Modifier.fillMaxWidth(),
+              ) {
+                Text("Unlock for ${chosenUnlockMinutes}m")
+              }
+            }
+            UnlockChallengeType.TEMP_UNLOCK_DURATION,
+            UnlockChallengeType.DAILY_UNLOCK_LIMIT -> {
+              Button(
+                onClick = { onGrantUnlock(chosenUnlockMinutes, "Temporary unlock") },
+                modifier = Modifier.fillMaxWidth(),
+              ) {
+                Text("Grant ${chosenUnlockMinutes}m Unlock")
+              }
+            }
+            UnlockChallengeType.ADAPTIVE_MATH -> {
+              Text(mathChallenge.prompt, style = MaterialTheme.typography.headlineMedium)
+              OutlinedTextField(
+                value = mathInput,
+                onValueChange = { mathInput = it },
+                label = { Text("Answer") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+              )
+              Button(
+                onClick = {
+                  if (mathInput.trim().toIntOrNull() == mathChallenge.expectedAnswer) {
+                    onGrantUnlock(chosenUnlockMinutes, "Solved adaptive math")
+                  } else {
+                    localError = "Incorrect answer. Try again."
+                  }
+                },
+                modifier = Modifier.fillMaxWidth(),
+              ) {
+                Text("Submit Answer")
+              }
+            }
+            UnlockChallengeType.SENTENCE_TYPING -> {
+              Text("Type verbatim:", style = MaterialTheme.typography.labelLarge)
+              Text(expectedSentence, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+              OutlinedTextField(
+                value = sentenceInput,
+                onValueChange = { sentenceInput = it },
+                label = { Text("Commitment sentence") },
+                modifier = Modifier.fillMaxWidth(),
+              )
+              Button(
+                onClick = {
+                  if (UnlockChallengeEngine.validateSentence(expectedSentence, sentenceInput)) {
+                    onGrantUnlock(chosenUnlockMinutes, "Commitment verified")
+                  } else {
+                    localError = "Sentence must match exactly."
+                  }
+                },
+                modifier = Modifier.fillMaxWidth(),
+              ) {
+                Text("Verify Sentence")
+              }
+            }
+            UnlockChallengeType.INTENTION_ENTRY -> {
+              OutlinedTextField(
+                value = intentionInput,
+                onValueChange = { intentionInput = it },
+                label = { Text("Why do you need $appName right now? (min 3 words)") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+              )
+              Button(
+                onClick = {
+                  if (UnlockChallengeEngine.validateIntention(intentionInput)) {
+                    onGrantUnlock(chosenUnlockMinutes, intentionInput)
+                  } else {
+                    localError = "Write a brief, specific intention (at least 3 words / 12 chars)."
+                  }
+                },
+                modifier = Modifier.fillMaxWidth(),
+              ) {
+                Text("Confirm Intention")
+              }
+            }
+            UnlockChallengeType.QR_SCAN,
+            UnlockChallengeType.BARCODE_SCAN -> {
+              Button(
+                onClick = { showScanner = true },
+                modifier = Modifier.fillMaxWidth(),
+              ) {
+                Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                Spacer(modifier = Modifier.padding(4.dp))
+                Text("Scan Registered ${challengeType.label}")
+              }
+            }
+            UnlockChallengeType.NFC_SCAN -> {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Nfc, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.padding(4.dp))
+                Text("Hold your registered FocusNest NFC tag to the back of your phone.")
+              }
+            }
+          }
+
+          (localError ?: errorText)?.let { err ->
+            Text(err, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(12.dp))
+      TextButton(onClick = { showEmergencyBox = !showEmergencyBox }) {
+        Text("Owner Emergency Recovery")
+      }
+      if (showEmergencyBox) {
+        SanctuaryCard {
+          Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+              "Device owner emergency bypass. Enter your FocusNest emergency passcode (if set) or confirm.",
+              style = MaterialTheme.typography.bodyMedium,
+            )
+            if (hasEmergencyPasscode) {
+              OutlinedTextField(
+                value = emergencyPin,
+                onValueChange = { emergencyPin = it },
+                label = { Text("Emergency Passcode") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+              )
+            }
+            OutlinedButton(
+              onClick = {
+                val ok =
+                  !hasEmergencyPasscode ||
+                    KeystoreAndBackupCrypto.sha256Hex(emergencyPin.trim()) == emergencyPasscodeHash
+                if (ok) onGrantUnlock(5, "Owner emergency recovery")
+                else localError = "Incorrect emergency passcode."
+              },
+              modifier = Modifier.fillMaxWidth(),
+            ) {
+              Text("Grant 5m Emergency Access")
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (showScanner) {
+    OfflineQrBarcodeScannerDialog(
+      title = "Scan Unlock Token",
+      onCodeScanned = { code ->
+        showScanner = false
+        onVerifyQrOrBarcode(code) { onGrantUnlock(chosenUnlockMinutes, "Token verified") }
+      },
+      onDismiss = { showScanner = false },
+    )
+  }
+}

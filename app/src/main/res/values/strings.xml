@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">FocusNest</string>
+    <string name="app_tagline">Own Your Time. Protect Your Focus.</string>
+    <string name="accessibility_service_description">FocusNest Optional Focus &amp; Reels Assistant: Helps enforce your chosen app blocks and short-form content pause reminders locally on your device. Never collects, logs, or transmits screen contents.</string>
+    <string name="notification_listener_description">FocusNest Optional Notification Filter: Manages local notification muting during Focus and Bedtime profiles. All records remain strictly on your device.</string>
+    <string name="widget_screen_time_desc">Shows today\'s screen time and daily goal progress from FocusNest.</string>
+    <string name="widget_focus_timer_desc">Quickly view or launch a FocusNest focus session.</string>
+    <string name="widget_blocking_profile_desc">Shows active blocking profile status and blocked attempts.</string>
+</resources>
