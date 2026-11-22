@@ -17,7 +17,7 @@ FocusNest is a 100% free, privacy-first, open-source Android digital wellbeing, 
 flowchart TD
     UI[Jetpack Compose M3 UI - Home / Focus / Blocker / Insights / More] --> VM[FocusNestViewModel]
     VM --> REPO[Repositories: UsageStats / Blocker / Focus / Insights & Backup]
-    REPO --> ROOM[(Room SQLite - 18 Entities)]
+    REPO --> ROOM[(Room SQLite - 21 Entities)]
     REPO --> DS[(DataStore Preferences & Timer Epoch State)]
     REPO --> SYS[Android System APIs: UsageStatsManager / PackageManager / NFC]
     SVC[Services: FocusTimerService / Accessibility / Local DNS VPN / NotificationListener] --> REPO
@@ -26,13 +26,14 @@ flowchart TD
 
 ## Key Features
 
-- **Home Dashboard**: Real screen-time goal ring, remaining allowance, top apps + launch counts, live focus status, quick shield toggle, weekly chart, and daily intention.
-- **Focus Timer**: Pomodoro, Countdown, and Stopwatch modes with 6 session types, custom break/cycle settings, reboot-persistent epoch timing, streaks, and timeline history.
-- **App Blocker & Profiles**: Installed app search, categories, shared app groups, daily/weekly limits, 6+ preset profiles (`Study`, `College`, `Work`, `Sleep`, `Reading`, `Weekend`, `Custom`), and deterministic rule-priority resolution.
-- **11 Unlock Challenges**: Strict Mode, Fixed Cooldown, Temporary Unlock, Offline QR Scan, Offline Barcode Scan, NFC Tag Tap, Adaptive Math, Sentence Typing, Personal Intention, Daily Unlock Cap, and Reflection Pause.
-- **Local Website Filter**: Optional on-device `VpnService` DNS sinkhole (blocklist, allowlist, offline packs) with zero external servers.
+- **Home Dashboard**: Real screen-time goal ring, yesterday-vs-today usage comparison, remaining allowance, top apps with launcher icons & cap badges, live focus status, quick shield toggle, weekly chart, and daily intention.
+- **Focus Timer & Quick Tile**: Pomodoro, Countdown, and Stopwatch modes with quick presets (`15m–90m`), live `+5m` extend, restart, break skip, Android Quick Settings Tile, reboot-persistent epoch timing, streaks, and timeline history.
+- **App Blocker & Profiles**: Installed app search, categories, **Category Daily Caps**, **Grace Periods**, 80%/90%/100% usage warnings, shared app groups, daily/weekly limits, 6+ preset profiles (`Study`, `College`, `Work`, `Sleep`, `Reading`, `Weekend`, `Custom`), and deterministic rule-priority resolution.
+- **12 Unlock Challenges**: Strict Mode, Fixed Cooldown, Temporary Unlock, Offline QR Scan, Offline Barcode Scan (with SHA-256 signatures, single-use, and expiry support), NFC Tag Tap, Adaptive Math, Sentence Typing, Personal Intention, Daily Unlock Cap, Reflection Pause, and Guided Breathing (4-2-4).
+- **Offline Habits & Routines**: Daily/weekly habit tracking, streaks, multi-unit counters, and 7-day completion rate charts stored locally.
+- **Local Website Filter & Per-App Network Scope**: Optional on-device `VpnService` DNS sinkhole (blocklist, allowlist, offline packs) and per-app VPN network restriction with zero external servers.
 - **Reels & Shorts Reduction**: Configurable pause prompts and daily limits for Instagram Reels, YouTube Shorts, Facebook Reels, and TikTok.
-- **Insights & Exports**: Daily/weekly/monthly/custom-range analytics, category breakdowns, best focus period, CSV, JSON, and printable HTML reports.
+- **Insights, Localization & Exports**: Daily/weekly/monthly/custom-range analytics, English & Hindi localization, 6 accent palettes, granular privacy cleanup, CSV, JSON, and printable HTML reports.
 - **Widgets & Hardware**: 3 Home Screen widgets, CameraX + ZXing offline QR/Barcode scanner & generator, native Android NFC tag vault, and BiometricPrompt support for Invincible Mode.
 
 ## Building & Testing

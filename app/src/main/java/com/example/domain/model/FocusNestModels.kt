@@ -42,6 +42,7 @@ enum class UnlockChallengeType(val label: String, val summary: String) {
   INTENTION_ENTRY("Personal Intention", "Write why you need this app right now"),
   DAILY_UNLOCK_LIMIT("Daily Unlock Limit", "Caps maximum unlocks per app per day"),
   REFLECTION_REMINDER("Reflection Pause", "Guided breathing & reflection prompt before entry"),
+  BREATHING("Breathing Challenge", "Complete a guided inhale-hold-exhale cycle before entry"),
 }
 
 enum class AppCategory(val label: String) {
@@ -57,6 +58,7 @@ enum class AppCategory(val label: String) {
 
 enum class AccentPalette(val label: String) {
   EMERALD_SAGE("Sage Sanctuary"),
+  INDIGO_FOCUS("Indigo Focus"),
   WARM_AMBER("Warm Amber"),
   OCEAN_SLATE("Ocean Slate"),
   LAVENDER_DUSK("Calm Dusk"),
@@ -131,7 +133,22 @@ data class MathChallenge(
   val difficultyLevel: Int,
 )
 
+enum class LimitThresholdLevel {
+  NONE,
+  WARN_80,
+  WARN_90,
+  WARN_100,
+}
+
 object UnlockChallengeEngine {
+  val predefinedIntentionReasons =
+    listOf(
+      "Reply to an urgent message",
+      "Check a study/work resource",
+      "Two-factor verification or utility",
+      "Planned break check-in (5 min max)",
+    )
+
   private val commitmentSentences =
     listOf(
       "I choose intentional presence over mindless scrolling right now.",
@@ -141,7 +158,7 @@ object UnlockChallengeEngine {
     )
 
   fun generateMathChallenge(attemptCountToday: Int, random: Random = Random.Default): MathChallenge {
-    val level = (attemptCountToday / 2).coerceIn(1, 4)
+    val level = (attemptCountToday / 2).coerceIn(1, 5)
     return when (level) {
       1 -> {
         val a = random.nextInt(12, 35)
@@ -155,6 +172,13 @@ object UnlockChallengeEngine {
         MathChallenge("($a - $b) × $c = ?", (a - b) * c, level)
       }
       3 -> {
+        val divisor = random.nextInt(3, 12)
+        val quotient = random.nextInt(4, 16)
+        val dividend = divisor * quotient
+        val bonus = random.nextInt(5, 25)
+        MathChallenge("($dividend ÷ $divisor) + $bonus = ?", quotient + bonus, level)
+      }
+      4 -> {
         val a = random.nextInt(11, 24)
         val b = random.nextInt(6, 15)
         val c = random.nextInt(15, 45)
@@ -166,6 +190,17 @@ object UnlockChallengeEngine {
         val c = random.nextInt(25, 65)
         MathChallenge("$a × $b - $c = ?", a * b - c, level)
       }
+    }
+  }
+
+  fun evaluateUsageThreshold(usedMinutes: Int, limitMinutes: Int): LimitThresholdLevel {
+    if (limitMinutes <= 0) return LimitThresholdLevel.NONE
+    val pct = (usedMinutes * 100) / limitMinutes
+    return when {
+      pct >= 100 -> LimitThresholdLevel.WARN_100
+      pct >= 90 -> LimitThresholdLevel.WARN_90
+      pct >= 80 -> LimitThresholdLevel.WARN_80
+      else -> LimitThresholdLevel.NONE
     }
   }
 
@@ -204,7 +239,7 @@ object RulePriorityResolver {
    * 90  - Active Focus Session blocking
    * 80  - Invincible / Strict manual block
    * 70  - Active Scheduled Profile (sorted by profile priority)
-   * 60  - App or Group Daily/Weekly Limit exceeded
+   * 60  - App, Group, or Category Daily/Weekly Limit exceeded (after optional grace period)
    */
   fun resolve(
     packageName: String,
@@ -221,6 +256,10 @@ object RulePriorityResolver {
     dailyLimitMinutes: Int?,
     usedMinutesWeek: Int = 0,
     weeklyLimitMinutes: Int? = null,
+    gracePeriodMinutes: Int = 0,
+    categoryUsedMinutesToday: Int = 0,
+    categoryDailyLimitMinutes: Int? = null,
+    categoryName: String? = null,
   ): ActiveBlockDecision {
     if (tempUnlockExpiresAtEpochMs != null && tempUnlockExpiresAtEpochMs > nowEpochMs) {
       val remMin = max(1, ((tempUnlockExpiresAtEpochMs - nowEpochMs) / 60_000L).toInt())
@@ -252,11 +291,35 @@ object RulePriorityResolver {
       )
     }
 
-    if (dailyLimitMinutes != null && dailyLimitMinutes > 0 && usedMinutesToday >= dailyLimitMinutes) {
+    val effectiveDailyHardBlock =
+      if (dailyLimitMinutes != null && dailyLimitMinutes > 0) {
+        dailyLimitMinutes + gracePeriodMinutes.coerceAtLeast(0)
+      } else null
+
+    if (effectiveDailyHardBlock != null && usedMinutesToday >= effectiveDailyHardBlock) {
       return ActiveBlockDecision(
         isBlocked = true,
-        reason = "Daily limit reached (${usedMinutesToday}m / ${dailyLimitMinutes}m)",
+        reason =
+          if (gracePeriodMinutes > 0) {
+            "Daily limit + ${gracePeriodMinutes}m grace ended (${usedMinutesToday}m / ${dailyLimitMinutes}m)"
+          } else {
+            "Daily limit reached (${usedMinutesToday}m / ${dailyLimitMinutes}m)"
+          },
         priorityRank = 60,
+        challengeType = if (isStrictMode) UnlockChallengeType.STRICT_MODE else matchingChallenge,
+        remainingAllowanceMinutes = 0,
+      )
+    }
+
+    if (
+      categoryDailyLimitMinutes != null &&
+        categoryDailyLimitMinutes > 0 &&
+        categoryUsedMinutesToday >= categoryDailyLimitMinutes
+    ) {
+      return ActiveBlockDecision(
+        isBlocked = true,
+        reason = "${categoryName ?: "Category"} daily limit reached (${categoryUsedMinutesToday}m / ${categoryDailyLimitMinutes}m)",
+        priorityRank = 58,
         challengeType = if (isStrictMode) UnlockChallengeType.STRICT_MODE else matchingChallenge,
         remainingAllowanceMinutes = 0,
       )
@@ -279,9 +342,16 @@ object RulePriorityResolver {
         null
       }
 
+    val inGraceNote =
+      if (dailyLimitMinutes != null && dailyLimitMinutes > 0 && usedMinutesToday >= dailyLimitMinutes && gracePeriodMinutes > 0) {
+        "Grace period (${effectiveDailyHardBlock!! - usedMinutesToday}m left)"
+      } else {
+        "Allowed"
+      }
+
     return ActiveBlockDecision(
       isBlocked = false,
-      reason = "Allowed",
+      reason = inGraceNote,
       remainingAllowanceMinutes = remaining,
     )
   }

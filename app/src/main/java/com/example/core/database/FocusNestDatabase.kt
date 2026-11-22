@@ -69,8 +69,11 @@ class FocusNestConverters {
       NfcTagEntity::class,
       QrTokenEntity::class,
       ShortFormRuleEntity::class,
+      HabitEntity::class,
+      HabitCompletionEntity::class,
+      CategoryLimitEntity::class,
     ],
-  version = 1,
+  version = 2,
   exportSchema = false,
 )
 @TypeConverters(FocusNestConverters::class)
@@ -91,6 +94,8 @@ abstract class FocusNestDatabase : RoomDatabase() {
   abstract fun userPreferenceDao(): UserPreferenceDao
   abstract fun tokenVaultDao(): TokenVaultDao
   abstract fun shortFormRuleDao(): ShortFormRuleDao
+  abstract fun habitDao(): HabitDao
+  abstract fun categoryLimitDao(): CategoryLimitDao
 
   companion object {
     const val DATABASE_NAME = "focusnest_local.db"
@@ -98,24 +103,93 @@ abstract class FocusNestDatabase : RoomDatabase() {
     val MIGRATION_1_2 =
       object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
-          // Schema evolution placeholder for future v2 columns without destructive fallback.
+          db.execSQL("ALTER TABLE app_limits ADD COLUMN categoryName TEXT NOT NULL DEFAULT ''")
+          db.execSQL("ALTER TABLE app_limits ADD COLUMN gracePeriodMinutes INTEGER NOT NULL DEFAULT 0")
+          db.execSQL("ALTER TABLE app_limits ADD COLUMN warned80DateKey TEXT NOT NULL DEFAULT ''")
+          db.execSQL("ALTER TABLE app_limits ADD COLUMN warned90DateKey TEXT NOT NULL DEFAULT ''")
+          db.execSQL("ALTER TABLE app_limits ADD COLUMN warned100DateKey TEXT NOT NULL DEFAULT ''")
+
+          db.execSQL("ALTER TABLE qr_tokens ADD COLUMN isOneTime INTEGER NOT NULL DEFAULT 0")
+          db.execSQL("ALTER TABLE qr_tokens ADD COLUMN expiresAtEpochMs INTEGER NOT NULL DEFAULT 0")
+          db.execSQL("ALTER TABLE qr_tokens ADD COLUMN isConsumed INTEGER NOT NULL DEFAULT 0")
+          db.execSQL("ALTER TABLE qr_tokens ADD COLUMN signatureHex TEXT NOT NULL DEFAULT ''")
+
+          db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `habits` (
+              `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+              `title` TEXT NOT NULL,
+              `description` TEXT NOT NULL,
+              `frequencyType` TEXT NOT NULL,
+              `targetCount` INTEGER NOT NULL,
+              `unitLabel` TEXT NOT NULL,
+              `reminderMinuteOfDay` INTEGER NOT NULL,
+              `reminderEnabled` INTEGER NOT NULL,
+              `colorHexTag` TEXT NOT NULL,
+              `createdAtEpochMs` INTEGER NOT NULL,
+              `isArchived` INTEGER NOT NULL
+            )
+            """.trimIndent()
+          )
+
+          db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `habit_completions` (
+              `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+              `habitId` INTEGER NOT NULL,
+              `dateKey` TEXT NOT NULL,
+              `completedCount` INTEGER NOT NULL,
+              `completedAtEpochMs` INTEGER NOT NULL,
+              FOREIGN KEY(`habitId`) REFERENCES `habits`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent()
+          )
+          db.execSQL("CREATE INDEX IF NOT EXISTS `index_habit_completions_habitId` ON `habit_completions` (`habitId`)")
+          db.execSQL("CREATE INDEX IF NOT EXISTS `index_habit_completions_dateKey` ON `habit_completions` (`dateKey`)")
+
+          db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `category_limits` (
+              `categoryName` TEXT NOT NULL,
+              `dailyLimitMinutes` INTEGER NOT NULL,
+              `isEnabled` INTEGER NOT NULL,
+              `challengeType` TEXT NOT NULL,
+              `updatedAtEpochMs` INTEGER NOT NULL,
+              PRIMARY KEY(`categoryName`)
+            )
+            """.trimIndent()
+          )
         }
       }
 
     @Volatile private var INSTANCE: FocusNestDatabase? = null
+    @Volatile private var instanceApp: Context? = null
 
-    fun getInstance(context: Context): FocusNestDatabase =
-      INSTANCE
-        ?: synchronized(this) {
-          INSTANCE
-            ?: Room.databaseBuilder(
-                context.applicationContext,
-                FocusNestDatabase::class.java,
-                DATABASE_NAME,
-              )
-              .addMigrations(MIGRATION_1_2)
-              .build()
-              .also { INSTANCE = it }
+    fun getInstance(context: Context): FocusNestDatabase {
+      val appContext = context.applicationContext ?: context
+      val existing = INSTANCE
+      if (existing != null && existing.isOpen && instanceApp === appContext) {
+        return existing
+      }
+      return synchronized(this) {
+        val current = INSTANCE
+        if (current != null && current.isOpen && instanceApp === appContext) {
+          current
+        } else {
+          runCatching { current?.close() }
+          Room.databaseBuilder(
+              appContext,
+              FocusNestDatabase::class.java,
+              DATABASE_NAME,
+            )
+            .addMigrations(MIGRATION_1_2)
+            .build()
+            .also {
+              INSTANCE = it
+              instanceApp = appContext
+            }
         }
+      }
+    }
   }
 }

@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -39,7 +41,9 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -68,9 +72,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.example.R
 import com.example.core.common.OemCompatibilityHelper
 import com.example.core.common.QrCodeGenerator
 import com.example.core.database.BlockProfileEntity
@@ -116,7 +122,7 @@ fun MoreScreen(
   onRefreshPermissions: () -> Unit,
   onSaveNfcTag: (String, String, String, Long?, Int) -> Unit,
   onDeleteNfcTag: (NfcTagEntity) -> Unit,
-  onSaveQrToken: (String, String, String, Long?) -> Unit,
+  onSaveQrToken: (String, String, String, Long?, Boolean, Int) -> Unit,
   onDeleteQrToken: (QrTokenEntity) -> Unit,
   onEnableInvincible: (Int, Boolean, String) -> Unit,
   onRequestInvincibleUnlock: () -> Unit,
@@ -138,6 +144,11 @@ fun MoreScreen(
   onRestoreBackup: suspend (String, String?) -> Result<Int>,
   onDeleteAllData: () -> Unit,
   onShowMessage: (String) -> Unit,
+  habitsCount: Int = 0,
+  onNavigateToHabits: () -> Unit = {},
+  onClearUsageHistory: () -> Unit = {},
+  onClearNotificationHistory: () -> Unit = {},
+  onClearHabits: () -> Unit = {},
 ) {
   var subPage by rememberSaveable { mutableStateOf(MoreSubPage.HUB) }
 
@@ -158,6 +169,15 @@ fun MoreScreen(
             "NFC/QR tokens, Invincible Mode, Mindful Tools, Permissions & Backups",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        item {
+          MoreHubTile(
+            icon = Icons.Default.SelfImprovement,
+            title = "Daily Habits & Offline Streaks",
+            subtitle = if (habitsCount == 0) "Track screen-free routines & build daily streaks" else "$habitsCount active habits tracked offline",
+            tag = "more_tile_habits",
+            onClick = onNavigateToHabits,
           )
         }
         item {
@@ -287,6 +307,9 @@ fun MoreScreen(
         onUpdateGoals = onUpdateGoals,
         onBuildEncryptedBackup = onBuildEncryptedBackup,
         onRestoreBackup = onRestoreBackup,
+        onClearUsageHistory = onClearUsageHistory,
+        onClearNotificationHistory = onClearNotificationHistory,
+        onClearHabits = onClearHabits,
         onDeleteAllData = onDeleteAllData,
         onShowMessage = onShowMessage,
       )
@@ -343,7 +366,7 @@ private fun VaultSubPage(
   onBack: () -> Unit,
   onSaveNfcTag: (String, String, String, Long?, Int) -> Unit,
   onDeleteNfcTag: (NfcTagEntity) -> Unit,
-  onSaveQrToken: (String, String, String, Long?) -> Unit,
+  onSaveQrToken: (String, String, String, Long?, Boolean, Int) -> Unit,
   onDeleteQrToken: (QrTokenEntity) -> Unit,
 ) {
   val context = LocalContext.current
@@ -353,6 +376,8 @@ private fun VaultSubPage(
   var nfcLabel by remember { mutableStateOf("Desk Study Tag") }
   var nfcAction by remember { mutableStateOf("START_FOCUS") }
   var qrLabel by remember { mutableStateOf("Physical Study Card") }
+  var qrIsOneTime by remember { mutableStateOf(false) }
+  var qrExpiresHours by remember { mutableIntStateOf(0) }
 
   Column(modifier = Modifier.fillMaxSize()) {
     SubPageHeader("NFC, QR & Barcode Vault", onBack)
@@ -444,11 +469,24 @@ private fun VaultSubPage(
               singleLine = true,
               modifier = Modifier.fillMaxWidth(),
             )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+              Text("One-Time Single-Use Token")
+              Switch(checked = qrIsOneTime, onCheckedChange = { qrIsOneTime = it })
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              listOf(0 to "Never expires", 1 to "Expires 1h", 24 to "Expires 24h").forEach { (hrs, lbl) ->
+                FilterChip(
+                  selected = qrExpiresHours == hrs,
+                  onClick = { qrExpiresHours = hrs },
+                  label = { Text(lbl) },
+                )
+              }
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
               Button(
                 onClick = {
                   val token = "FOCUSNEST:${UUID.randomUUID().toString().take(8).uppercase()}"
-                  onSaveQrToken(token, qrLabel, "QR_CODE", profiles.firstOrNull()?.id)
+                  onSaveQrToken(token, qrLabel, "QR_CODE", profiles.firstOrNull()?.id, qrIsOneTime, qrExpiresHours)
                   qrPreviewToken = token
                 },
                 modifier = Modifier.weight(1f),
@@ -484,14 +522,21 @@ private fun VaultSubPage(
       }
 
       items(qrTokens, key = { it.id }) { token ->
+        val statusTag =
+          buildString {
+            if (token.isOneTime) append(if (token.isConsumed) " • [Used]" else " • [One-Time]")
+            if (token.expiresAtEpochMs > 0L) {
+              append(if (System.currentTimeMillis() > token.expiresAtEpochMs) " • [Expired]" else " • [Timed]")
+            }
+          }
         SanctuaryCard {
           Row(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            Column(modifier = Modifier.weight(1f), modifier2 = Modifier) {
-              Text(token.label, style = MaterialTheme.typography.titleMedium)
+            Column(modifier = Modifier.weight(1f)) {
+              Text("${token.label}$statusTag", style = MaterialTheme.typography.titleMedium)
               Text("${token.tokenFormat} • ${token.tokenValue}", style = MaterialTheme.typography.bodyMedium)
             }
             Row {
@@ -513,7 +558,7 @@ private fun VaultSubPage(
       title = "Register QR or Barcode",
       onCodeScanned = { code ->
         val fmt = if (code.all { it.isDigit() }) "BARCODE" else "QR_CODE"
-        onSaveQrToken(code, qrLabel, fmt, profiles.firstOrNull()?.id)
+        onSaveQrToken(code, qrLabel, fmt, profiles.firstOrNull()?.id, qrIsOneTime, qrExpiresHours)
         showScanner = false
       },
       onDismiss = { showScanner = false },
@@ -521,10 +566,12 @@ private fun VaultSubPage(
   }
 }
 
-@Composable
-private fun Column(modifier: Modifier = Modifier, modifier2: Modifier = Modifier, content: @Composable () -> Unit) {
-  androidx.compose.foundation.layout.Column(modifier = modifier) { content() }
-}
+private tailrec fun Context.findFragmentActivity(): FragmentActivity? =
+  when (this) {
+    is FragmentActivity -> this
+    is ContextWrapper -> baseContext.findFragmentActivity()
+    else -> null
+  }
 
 @Composable
 private fun InvincibleSubPage(
@@ -543,7 +590,7 @@ private fun InvincibleSubPage(
   var recoveryPinInput by remember { mutableStateOf("") }
 
   fun launchBiometricThen(onAuthed: () -> Unit) {
-    val activity = context as? FragmentActivity
+    val activity = context.findFragmentActivity()
     val canAuth =
       BiometricManager.from(context).canAuthenticate(
         BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -947,6 +994,9 @@ private fun SettingsSubPage(
   onUpdateGoals: (Int, Int, Int, Int) -> Unit,
   onBuildEncryptedBackup: suspend (String) -> String,
   onRestoreBackup: suspend (String, String?) -> Result<Int>,
+  onClearUsageHistory: () -> Unit,
+  onClearNotificationHistory: () -> Unit,
+  onClearHabits: () -> Unit,
   onDeleteAllData: () -> Unit,
   onShowMessage: (String) -> Unit,
 ) {
@@ -1032,6 +1082,28 @@ private fun SettingsSubPage(
         SanctuaryCard {
           Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(Icons.Default.Translate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+              Spacer(modifier = Modifier.width(8.dp))
+              Text("App Language", style = MaterialTheme.typography.titleMedium)
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              listOf("en" to "English", "hi" to "हिन्दी (Hindi)").forEach { (code, label) ->
+                FilterChip(
+                  selected = settings.languageCode == code,
+                  onClick = { onUpdateAppearance(null, null, null, code) },
+                  label = { Text(label) },
+                  modifier = Modifier.testTag("lang_chip_$code"),
+                )
+              }
+            }
+          }
+        }
+      }
+
+      item {
+        SanctuaryCard {
+          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
               Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
               Spacer(modifier = Modifier.width(8.dp))
               Text("Daily & Weekly Goals", style = MaterialTheme.typography.titleMedium)
@@ -1075,6 +1147,19 @@ private fun SettingsSubPage(
                 onClick = { backupRestorer.launch(arrayOf("application/json", "*/*")) },
                 modifier = Modifier.weight(1f),
               ) { Text("Restore File") }
+            }
+          }
+        }
+      }
+
+      item {
+        SanctuaryCard {
+          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Granular Privacy Cleanup", style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+              OutlinedButton(onClick = onClearUsageHistory) { Text("Clear Usage History") }
+              OutlinedButton(onClick = onClearNotificationHistory) { Text("Clear Notification Log") }
+              OutlinedButton(onClick = onClearHabits) { Text("Clear Habits") }
             }
           }
         }
@@ -1153,11 +1238,15 @@ private fun PrivacyAndAboutSubPage(onBack: () -> Unit) {
     ) {
       item {
         SanctuaryCard(highlight = true) {
-          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-              Spacer(modifier = Modifier.width(8.dp))
-              Text("FocusNest v1.0.0 • MIT Open Source", style = MaterialTheme.typography.titleMedium)
+              Image(
+                painter = painterResource(R.drawable.ic_logo_light),
+                contentDescription = "FocusNest brand artwork",
+                modifier = Modifier.size(44.dp),
+              )
+              Spacer(modifier = Modifier.width(10.dp))
+              Text("FocusNest v1.1.0 • MIT Open Source", style = MaterialTheme.typography.titleMedium)
             }
             Text(
               "100% Free • No Ads • No Trackers • No Cloud Accounts • No Internet Permission.",

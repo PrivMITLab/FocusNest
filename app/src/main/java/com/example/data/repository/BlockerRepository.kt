@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import com.example.core.common.KeystoreAndBackupCrypto
 import com.example.core.database.AppGroupDao
 import com.example.core.database.AppGroupEntity
 import com.example.core.database.AppLimitDao
@@ -9,6 +10,8 @@ import com.example.core.database.BlockProfileDao
 import com.example.core.database.BlockProfileEntity
 import com.example.core.database.BlockingScheduleDao
 import com.example.core.database.BlockingScheduleEntity
+import com.example.core.database.CategoryLimitDao
+import com.example.core.database.CategoryLimitEntity
 import com.example.core.database.DailyAnalyticsDao
 import com.example.core.database.DailyAnalyticsEntity
 import com.example.core.database.InstalledAppDao
@@ -25,6 +28,7 @@ import com.example.core.database.WebsiteRuleEntity
 import com.example.core.datastore.FocusNestPreferences
 import com.example.domain.model.ActiveBlockDecision
 import com.example.domain.model.FocusTimeUtils
+import com.example.domain.model.LimitThresholdLevel
 import com.example.domain.model.ReelsTargetApp
 import com.example.domain.model.RulePriorityResolver
 import com.example.domain.model.UnlockChallengeEngine
@@ -32,6 +36,7 @@ import com.example.domain.model.UnlockChallengeType
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 
 class BlockerRepository(
@@ -47,9 +52,11 @@ class BlockerRepository(
   private val dailyAnalyticsDao: DailyAnalyticsDao,
   private val installedAppDao: InstalledAppDao,
   private val preferences: FocusNestPreferences,
+  private val categoryLimitDao: CategoryLimitDao? = null,
 ) {
   val appLimits: Flow<List<AppLimitEntity>> = appLimitDao.observeAll()
   val appGroups: Flow<List<AppGroupEntity>> = appGroupDao.observeAll()
+  val categoryLimits: Flow<List<CategoryLimitEntity>> = categoryLimitDao?.observeAll() ?: emptyFlow()
   val profiles: Flow<List<BlockProfileEntity>> = blockProfileDao.observeAll()
   val schedules: Flow<List<BlockingScheduleEntity>> = blockingScheduleDao.observeAll()
   val unlockRules: Flow<List<UnlockRuleEntity>> = unlockDao.observeRules()
@@ -147,6 +154,14 @@ class BlockerRepository(
 
   suspend fun deleteAppLimit(packageName: String) = appLimitDao.deleteByPackage(packageName)
 
+  suspend fun saveCategoryLimit(limit: CategoryLimitEntity) {
+    categoryLimitDao?.upsert(limit)
+  }
+
+  suspend fun deleteCategoryLimit(categoryName: String) {
+    categoryLimitDao?.deleteByCategory(categoryName)
+  }
+
   suspend fun saveAppGroup(group: AppGroupEntity): Long = appGroupDao.upsert(group)
 
   suspend fun deleteAppGroup(group: AppGroupEntity) = appGroupDao.delete(group)
@@ -218,13 +233,82 @@ class BlockerRepository(
 
   suspend fun findNfcTag(uidHex: String): NfcTagEntity? = tokenVaultDao.getNfcTag(uidHex)
 
-  suspend fun registerQrOrBarcodeToken(token: QrTokenEntity): Long =
-    tokenVaultDao.upsertQrToken(token)
+  suspend fun registerQrOrBarcodeToken(token: QrTokenEntity): Long {
+    val sig =
+      if (token.signatureHex.isBlank()) {
+        KeystoreAndBackupCrypto.sha256Hex("focusnest-qr|${token.tokenValue}|${token.createdAtEpochMs}")
+      } else {
+        token.signatureHex
+      }
+    return tokenVaultDao.upsertQrToken(token.copy(signatureHex = sig))
+  }
 
   suspend fun deleteQrOrBarcodeToken(token: QrTokenEntity) = tokenVaultDao.deleteQrToken(token)
 
   suspend fun verifyQrOrBarcodeToken(scannedValue: String): QrTokenEntity? =
-    tokenVaultDao.findQrToken(scannedValue.trim())
+    verifyAndConsumeQrOrBarcodeToken(scannedValue).first
+
+  suspend fun verifyAndConsumeQrOrBarcodeToken(
+    scannedValue: String,
+    nowEpochMs: Long = System.currentTimeMillis(),
+  ): Pair<QrTokenEntity?, String?> {
+    val token = tokenVaultDao.findQrToken(scannedValue.trim())
+      ?: return null to "Code not registered in FocusNest NFC & QR Vault."
+
+    if (token.signatureHex.isNotBlank()) {
+      val expectedSig =
+        KeystoreAndBackupCrypto.sha256Hex("focusnest-qr|${token.tokenValue}|${token.createdAtEpochMs}")
+      if (token.signatureHex != expectedSig) {
+        return null to "Token signature verification failed."
+      }
+    }
+    if (token.expiresAtEpochMs > 0L && nowEpochMs > token.expiresAtEpochMs) {
+      return null to "This unlock token has expired."
+    }
+    if (token.isOneTime && token.isConsumed) {
+      return null to "One-time token has already been used."
+    }
+    if (token.isOneTime) {
+      tokenVaultDao.markQrTokenConsumed(token.id)
+    }
+    return token to null
+  }
+
+  suspend fun evaluateAndMarkAppLimitWarnings(
+    nowEpochMs: Long = System.currentTimeMillis(),
+  ): List<Pair<AppLimitEntity, LimitThresholdLevel>> {
+    val today = FocusTimeUtils.todayKey(nowEpochMs)
+    val usageMap = appUsageDao.getUsageForDate(today).associateBy { it.packageName }
+    val limits = appLimitDao.getAll().filter { it.dailyLimitMinutes > 0 }
+    val triggered = mutableListOf<Pair<AppLimitEntity, LimitThresholdLevel>>()
+
+    for (limit in limits) {
+      val usedMinutes = ((usageMap[limit.packageName]?.foregroundTimeMs ?: 0L) / 60_000L).toInt()
+      val threshold = UnlockChallengeEngine.evaluateUsageThreshold(usedMinutes, limit.dailyLimitMinutes)
+      when (threshold) {
+        LimitThresholdLevel.WARN_100 ->
+          if (limit.warned100DateKey != today) {
+            val updated = limit.copy(warned100DateKey = today, warned90DateKey = today, warned80DateKey = today)
+            appLimitDao.upsert(updated)
+            triggered.add(updated to LimitThresholdLevel.WARN_100)
+          }
+        LimitThresholdLevel.WARN_90 ->
+          if (limit.warned90DateKey != today) {
+            val updated = limit.copy(warned90DateKey = today, warned80DateKey = today)
+            appLimitDao.upsert(updated)
+            triggered.add(updated to LimitThresholdLevel.WARN_90)
+          }
+        LimitThresholdLevel.WARN_80 ->
+          if (limit.warned80DateKey != today) {
+            val updated = limit.copy(warned80DateKey = today)
+            appLimitDao.upsert(updated)
+            triggered.add(updated to LimitThresholdLevel.WARN_80)
+          }
+        LimitThresholdLevel.NONE -> Unit
+      }
+    }
+    return triggered
+  }
 
   suspend fun recordBlockedAttempt(packageName: String) {
     val today = FocusTimeUtils.todayKey()
@@ -413,6 +497,18 @@ class BlockerRepository(
         .minOrNull()
     val effectiveUsedToday = maxOf(usedMinutesToday, groupUsageMinutes)
 
+    val appCategory =
+      installed?.category?.takeIf { it.isNotBlank() } ?: limit?.categoryName?.takeIf { it.isNotBlank() }
+    val catLimitEntity =
+      if (appCategory != null) {
+        categoryLimitDao?.getByCategory(appCategory)?.takeIf { it.isEnabled && it.dailyLimitMinutes > 0 }
+      } else null
+    val catUsedMinutes =
+      if (catLimitEntity != null) {
+        (usageToday.filter { it.category == catLimitEntity.categoryName }.sumOf { it.foregroundTimeMs } / 60_000L)
+          .toInt()
+      } else 0
+
     return RulePriorityResolver.resolve(
       packageName = packageName,
       tempUnlockExpiresAtEpochMs = limit?.tempUnlockUntilEpochMs,
@@ -428,6 +524,10 @@ class BlockerRepository(
       dailyLimitMinutes = effectiveDailyLimit,
       usedMinutesWeek = usedMinutesWeek,
       weeklyLimitMinutes = limit?.weeklyLimitMinutes?.takeIf { it > 0 },
+      gracePeriodMinutes = limit?.gracePeriodMinutes ?: 0,
+      categoryUsedMinutesToday = catUsedMinutes,
+      categoryDailyLimitMinutes = catLimitEntity?.dailyLimitMinutes,
+      categoryName = catLimitEntity?.categoryName,
     )
   }
 

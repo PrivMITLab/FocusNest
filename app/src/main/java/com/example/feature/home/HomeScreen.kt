@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
@@ -31,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -44,20 +46,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.R
+import com.example.core.database.AppLimitEntity
 import com.example.core.database.AppUsageEntity
 import com.example.core.database.BlockProfileEntity
 import com.example.core.database.BlockingScheduleEntity
 import com.example.core.database.DailyAnalyticsEntity
 import com.example.core.database.FocusGoalEntity
 import com.example.core.database.FocusSessionEntity
+import com.example.core.database.HabitEntity
 import com.example.core.datastore.FocusNestSettings
 import com.example.core.datastore.PersistedTimerState
 import com.example.core.design.AnimatedGoalRing
 import com.example.core.design.BarChartCard
 import com.example.core.design.FocusNestEmptyState
 import com.example.core.design.FocusNestLogoMark
+import com.example.core.design.InstalledAppIcon
 import com.example.core.design.MeasuredBadge
 import com.example.core.design.MetricTile
 import com.example.core.design.SanctuaryCard
@@ -68,6 +75,8 @@ import com.example.domain.model.PermissionSnapshot
 import com.example.domain.model.SessionType
 import com.example.domain.model.TimerMode
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -90,6 +99,10 @@ fun HomeDashboardScreen(
   onNavigateToFocus: () -> Unit,
   onNavigateToBlocker: () -> Unit,
   onNavigateToInsights: () -> Unit,
+  yesterdayUsage: List<AppUsageEntity> = emptyList(),
+  appLimits: List<AppLimitEntity> = emptyList(),
+  habits: List<HabitEntity> = emptyList(),
+  onNavigateToHabits: () -> Unit = {},
 ) {
   val context = LocalContext.current
   var showIntentionDialog by remember { mutableStateOf(false) }
@@ -97,6 +110,9 @@ fun HomeDashboardScreen(
 
   val todayKey = FocusTimeUtils.todayKey()
   val totalScreenMinutes = remember(todayUsage) { (todayUsage.sumOf { it.foregroundTimeMs } / 60_000L).toInt() }
+  val yesterdayScreenMinutes = remember(yesterdayUsage) { (yesterdayUsage.sumOf { it.foregroundTimeMs } / 60_000L).toInt() }
+  val hasYesterdayData = remember(yesterdayUsage) { yesterdayUsage.isNotEmpty() }
+  val limitsByPkg = remember(appLimits) { appLimits.associateBy { it.packageName } }
   val remainingMinutes = (focusGoal.dailyScreenTimeGoalMinutes - totalScreenMinutes).coerceAtLeast(0)
   val screenGoalProgress =
     if (focusGoal.dailyScreenTimeGoalMinutes > 0) {
@@ -109,6 +125,15 @@ fun HomeDashboardScreen(
   val activeProfiles = profiles.filter { it.isActive }
   val blockedAttempts = todayAnalytics?.blockedAttemptsCount ?: 0
   val nextSchedule = schedules.firstOrNull { it.isEnabled }
+  val hourNow = remember { LocalTime.now().hour }
+  val greetingText =
+    when (hourNow) {
+      in 5..11 -> stringResource(R.string.greeting_morning)
+      in 12..16 -> stringResource(R.string.greeting_afternoon)
+      else -> stringResource(R.string.greeting_evening)
+    }
+  val dateFormatted =
+    remember { LocalDate.now().format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault())) }
 
   val weeklyBarEntries =
     remember(weeklyUsage) {
@@ -136,9 +161,9 @@ fun HomeDashboardScreen(
           FocusNestLogoMark(size = 38.dp)
           Spacer(modifier = Modifier.width(10.dp))
           Column {
-            Text("FocusNest", style = MaterialTheme.typography.headlineMedium)
+            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
             Text(
-              "Own Your Time. Protect Your Focus.",
+              "$greetingText • $dateFormatted",
               style = MaterialTheme.typography.bodyMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -226,6 +251,20 @@ fun HomeDashboardScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
+              if (hasYesterdayData && yesterdayScreenMinutes > 0) {
+                val diff = totalScreenMinutes - yesterdayScreenMinutes
+                val diffLabel =
+                  when {
+                    diff < 0 -> "${FocusTimeUtils.formatDurationMinutes(-diff)} less than yesterday"
+                    diff > 0 -> "+${FocusTimeUtils.formatDurationMinutes(diff)} more than yesterday"
+                    else -> "Matching yesterday's usage"
+                  }
+                Text(
+                  diffLabel,
+                  style = MaterialTheme.typography.labelMedium,
+                  color = if (diff <= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                )
+              }
               Button(
                 onClick = {
                   if (timerState.isRunning) onNavigateToFocus()
@@ -297,6 +336,28 @@ fun HomeDashboardScreen(
               overflow = TextOverflow.Ellipsis,
             )
           }
+        }
+      }
+    }
+
+    // Quick Actions Strip (Focus, Shield, Habits, Insights)
+    item {
+      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+          onClick = onNavigateToHabits,
+          modifier = Modifier.weight(1f).testTag("home_quick_habits_btn"),
+        ) {
+          Icon(Icons.Default.SelfImprovement, contentDescription = null, modifier = Modifier.size(18.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(if (habits.isEmpty()) "Habits" else "Habits (${habits.size})")
+        }
+        OutlinedButton(
+          onClick = onNavigateToInsights,
+          modifier = Modifier.weight(1f).testTag("home_quick_insights_btn"),
+        ) {
+          Icon(Icons.Default.QueryStats, contentDescription = null, modifier = Modifier.size(18.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Insights")
         }
       }
     }
@@ -419,16 +480,26 @@ fun HomeDashboardScreen(
       }
     } else {
       items(todayUsage.take(6), key = { it.packageName }) { app ->
+        val limit = limitsByPkg[app.packageName]
+        val totalMs = todayUsage.sumOf { it.foregroundTimeMs }.coerceAtLeast(1L)
+        val pct = ((app.foregroundTimeMs.toFloat() / totalMs.toFloat()) * 100f).toInt()
         SanctuaryCard {
           Row(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
           ) {
+            InstalledAppIcon(packageName = app.packageName, appName = app.appName, size = 38.dp)
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
               Text(app.appName, style = MaterialTheme.typography.titleMedium)
               Text(
-                "${app.category} • ${app.launchCount} openings",
+                buildString {
+                  append("${app.category} • ${app.launchCount} openings • $pct%")
+                  if (limit != null && limit.dailyLimitMinutes > 0) {
+                    append(" • Cap ${limit.dailyLimitMinutes}m")
+                  }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )

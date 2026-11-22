@@ -12,6 +12,7 @@ import com.example.core.database.FocusNestDatabase
 import com.example.core.datastore.FocusNestPreferences
 import com.example.data.repository.BlockerRepository
 import com.example.data.repository.FocusRepository
+import com.example.data.repository.HabitRepository
 import com.example.data.repository.InsightsAndBackupRepository
 import com.example.data.repository.UsageStatsRepository
 import com.example.service.FocusUsageMonitorWorker
@@ -47,6 +48,7 @@ class AppContainer(context: Context) {
       dailyAnalyticsDao = database.dailyAnalyticsDao(),
       installedAppDao = database.installedAppDao(),
       preferences = preferences,
+      categoryLimitDao = database.categoryLimitDao(),
     )
 
   val focusRepository: FocusRepository =
@@ -54,6 +56,11 @@ class AppContainer(context: Context) {
       focusSessionDao = database.focusSessionDao(),
       focusGoalDao = database.focusGoalDao(),
       dailyAnalyticsDao = database.dailyAnalyticsDao(),
+    )
+
+  val habitRepository: HabitRepository =
+    HabitRepository(
+      habitDao = database.habitDao(),
     )
 
   val insightsRepository: InsightsAndBackupRepository =
@@ -71,6 +78,8 @@ class AppContainer(context: Context) {
       reminderDao = database.reminderDao(),
       notificationRecordDao = database.notificationRecordDao(),
       preferences = preferences,
+      habitDao = database.habitDao(),
+      categoryLimitDao = database.categoryLimitDao(),
     )
 }
 
@@ -107,7 +116,7 @@ class FocusNestApplication : Application() {
             "Mindful Reminders",
             NotificationManager.IMPORTANCE_DEFAULT,
           )
-          .apply { description = "Break, bedtime, and usage warning reminders." }
+          .apply { description = "Break, bedtime, and 80%/90%/100% app usage limit warnings." }
       val vpnChannel =
         NotificationChannel(
             CHANNEL_VPN,

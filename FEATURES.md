@@ -1,10 +1,11 @@
 # FocusNest Features
 
-- **Home Dashboard**: Daily screen time vs goal ring, remaining allowance, top apps with launch counts, quick focus, quick shield, active profiles, blocked attempts, weekly comparison chart, and daily intention.
-- **Usage Analytics**: Real `UsageStatsManager` metrics across Daily, Weekly, Monthly, and Custom date ranges, category breakdowns, CSV/JSON/Printable HTML export.
-- **App Blocker & Profiles**: Per-app daily/weekly limits, shared app groups, `Study`/`College`/`Work`/`Sleep`/`Reading`/`Weekend`/`Custom` profiles, recurring schedules, emergency whitelist, and deterministic priority resolution.
-- **11 Unlock Challenges**: Strict Mode, Fixed Cooldown, Temporary Unlock, Offline QR Scan, Offline Barcode Scan, NFC Tag Tap, Adaptive Math, Sentence Typing, Personal Intention, Daily Unlock Limit, and Reflection Pause.
-- **Focus Timer**: Pomodoro, Countdown, Stopwatch, 6 session types, custom breaks/cycles, notes, streaks, and reboot persistence.
-- **Website & Reels Filtering**: Local-only `VpnService` DNS sinkhole and optional Reels/Shorts pause reduction.
+- **Home Dashboard**: Time-of-day localized greeting, yesterday-vs-today screen time comparison delta, daily screen time vs goal ring, remaining allowance, top apps with icons & daily cap shares, quick focus, quick shield, Quick Habits action, active profiles, blocked attempts, weekly comparison chart, and daily intention.
+- **Daily Habits & Offline Streaks**: Daily/weekly habit tracker with custom targets, steppers, streaks, 7-day completion strips, and 7-day completion rate chart stored 100% locally in Room.
+- **Usage Analytics**: Real `UsageStatsManager` metrics across Daily, Weekly, Monthly, and Custom date ranges, category breakdowns, Longest Session & Best Day comparisons, and CSV/JSON/Printable HTML export.
+- **App, Category & Profile Blocker**: Per-app daily/weekly limits with configurable grace periods, category daily caps, shared app groups, 80%/90%/100% warning notifications, `Study`/`College`/`Work`/`Sleep`/`Reading`/`Weekend`/`Custom` profiles, recurring schedules, emergency whitelist, and deterministic priority resolution.
+- **12 Unlock Challenges**: Breathing Challenge (4-2-4 orb), Strict Mode, Fixed Cooldown, Temporary Unlock, Offline QR Scan (one-time & timed replay-safe tokens), Offline Barcode Scan, NFC Tag Tap, Adaptive Math (with division), Sentence Typing, Personal Intention (with quick chips), Daily Unlock Limit, and Reflection Pause.
+- **Focus Timer**: Pomodoro, Countdown, Stopwatch, 6 session types, duration presets, `+5m` Extend, Restart, Break Skip, custom breaks/cycles, notes, streaks, monotonic elapsed-realtime clock guard, and reboot persistence.
+- **Website & Reels Filtering**: Local-only `VpnService` DNS sinkhole with per-app network scoping and optional Reels/Shorts pause reduction.
 - **Invincible Mode & Mindful Tools**: Delayed rule changes, BiometricPrompt gate, owner recovery, Bedtime, Scheduled DND, Break reminders, and local notification history.
-- **Widgets & Hardware**: Today Screen Time, Focus Timer, and Blocking Profile home widgets; NFC & offline QR/Barcode vault.
+- **Personalization, Accessibility & System Tiles**: 6 accent palettes (including `Indigo Focus`), Light/Dark/System themes, Dynamic Color, English & Hindi (`hi`) runtime language switching, Android Quick Settings Tile (`Focus Shield`), 3 Home Screen widgets, NFC & offline QR/Barcode vault, and granular privacy cleanup.

@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -54,6 +55,8 @@ class FocusTimerService : Service() {
           val mode = runCatching { TimerMode.valueOf(modeName) }.getOrDefault(TimerMode.POMODORO)
           val type = runCatching { SessionType.valueOf(typeName) }.getOrDefault(SessionType.STUDY)
           val now = System.currentTimeMillis()
+          val elapsedNow = SystemClock.elapsedRealtime()
+          val durationMs = minutes * 60_000L
           val state =
             PersistedTimerState(
               isRunning = true,
@@ -61,7 +64,8 @@ class FocusTimerService : Service() {
               mode = mode,
               sessionType = type,
               plannedMinutes = minutes,
-              targetEndEpochMs = if (mode == TimerMode.STOPWATCH) 0L else now + minutes * 60_000L,
+              targetEndEpochMs = if (mode == TimerMode.STOPWATCH) 0L else now + durationMs,
+              targetElapsedRealtimeMs = if (mode == TimerMode.STOPWATCH) 0L else elapsedNow + durationMs,
               startedAtEpochMs = now,
               pausedRemainingSeconds = minutes * 60L,
               stopwatchElapsedBaseSeconds = 0L,
@@ -83,8 +87,8 @@ class FocusTimerService : Service() {
                 val elapsed = current.stopwatchElapsedBaseSeconds + ((now - current.startedAtEpochMs) / 1000L)
                 current.copy(isRunning = false, stopwatchElapsedBaseSeconds = elapsed)
               } else {
-                val rem = ((current.targetEndEpochMs - now) / 1000L).coerceAtLeast(0L)
-                current.copy(isRunning = false, pausedRemainingSeconds = rem)
+                val rem = remainingSecondsForState(current, now, SystemClock.elapsedRealtime())
+                current.copy(isRunning = false, pausedRemainingSeconds = rem, targetElapsedRealtimeMs = 0L)
               }
             app.container.preferences.saveTimerState(paused)
           }
@@ -99,19 +103,96 @@ class FocusTimerService : Service() {
           val current = app.container.preferences.timerStateFlow.first()
           if (!current.isRunning && current.phase != TimerPhase.IDLE) {
             val now = System.currentTimeMillis()
+            val elapsedNow = SystemClock.elapsedRealtime()
+            val remMs = current.pausedRemainingSeconds * 1000L
             val resumed =
               if (current.mode == TimerMode.STOPWATCH) {
                 current.copy(isRunning = true, startedAtEpochMs = now)
               } else {
                 current.copy(
                   isRunning = true,
-                  targetEndEpochMs = now + current.pausedRemainingSeconds * 1000L,
+                  targetEndEpochMs = now + remMs,
+                  targetElapsedRealtimeMs = elapsedNow + remMs,
                 )
               }
             app.container.preferences.saveTimerState(resumed)
             startForegroundAndTicker(app, resumed)
           } else {
             stopSelf()
+          }
+        }
+      }
+      ACTION_EXTEND -> {
+        val deltaMinutes = (intent?.getIntExtra(EXTRA_DELTA_MINUTES, 5) ?: 5).coerceIn(1, 60)
+        serviceScope.launch {
+          val current = app.container.preferences.timerStateFlow.first()
+          if (current.phase != TimerPhase.IDLE && current.mode != TimerMode.STOPWATCH) {
+            val deltaMs = deltaMinutes * 60_000L
+            val extended =
+              if (current.isRunning) {
+                current.copy(
+                  plannedMinutes = current.plannedMinutes + deltaMinutes,
+                  targetEndEpochMs = current.targetEndEpochMs + deltaMs,
+                  targetElapsedRealtimeMs =
+                    if (current.targetElapsedRealtimeMs > 0L) current.targetElapsedRealtimeMs + deltaMs else 0L,
+                )
+              } else {
+                current.copy(
+                  plannedMinutes = current.plannedMinutes + deltaMinutes,
+                  pausedRemainingSeconds = current.pausedRemainingSeconds + deltaMinutes * 60L,
+                )
+              }
+            app.container.preferences.saveTimerState(extended)
+            if (extended.isRunning) {
+              val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+              nm.notify(NOTIFICATION_ID, buildNotification(extended))
+            }
+            WidgetUpdater.refreshAll(applicationContext)
+          }
+        }
+      }
+      ACTION_RESTART -> {
+        serviceScope.launch {
+          val current = app.container.preferences.timerStateFlow.first()
+          if (current.phase != TimerPhase.IDLE) {
+            val now = System.currentTimeMillis()
+            val elapsedNow = SystemClock.elapsedRealtime()
+            val durationMs = current.plannedMinutes * 60_000L
+            val restarted =
+              current.copy(
+                isRunning = true,
+                targetEndEpochMs = if (current.mode == TimerMode.STOPWATCH) 0L else now + durationMs,
+                targetElapsedRealtimeMs = if (current.mode == TimerMode.STOPWATCH) 0L else elapsedNow + durationMs,
+                startedAtEpochMs = now,
+                pausedRemainingSeconds = current.plannedMinutes * 60L,
+                stopwatchElapsedBaseSeconds = 0L,
+              )
+            app.container.preferences.saveTimerState(restarted)
+            startForegroundAndTicker(app, restarted)
+          }
+        }
+      }
+      ACTION_SKIP_BREAK -> {
+        serviceScope.launch {
+          val current = app.container.preferences.timerStateFlow.first()
+          if (current.phase == TimerPhase.SHORT_BREAK || current.phase == TimerPhase.LONG_BREAK) {
+            val settings = app.container.preferences.settingsFlow.first()
+            val now = System.currentTimeMillis()
+            val elapsedNow = SystemClock.elapsedRealtime()
+            val focusMin = settings.pomodoroFocusMinutes
+            val durationMs = focusMin * 60_000L
+            val next =
+              current.copy(
+                isRunning = true,
+                phase = TimerPhase.FOCUS,
+                plannedMinutes = focusMin,
+                targetEndEpochMs = now + durationMs,
+                targetElapsedRealtimeMs = elapsedNow + durationMs,
+                startedAtEpochMs = now,
+                pausedRemainingSeconds = focusMin * 60L,
+              )
+            app.container.preferences.saveTimerState(next)
+            startForegroundAndTicker(app, next)
           }
         }
       }
@@ -141,7 +222,15 @@ class FocusTimerService : Service() {
         serviceScope.launch {
           val current = app.container.preferences.timerStateFlow.first()
           if (current.isRunning && current.phase != TimerPhase.IDLE) {
-            startForegroundAndTicker(app, current)
+            // Re-anchor monotonic clock safely if device rebooted since targetElapsedRealtimeMs was saved
+            val now = System.currentTimeMillis()
+            val remSec = ((current.targetEndEpochMs - now) / 1000L).coerceAtLeast(0L)
+            val reanchored =
+              if (current.mode != TimerMode.STOPWATCH && current.targetEndEpochMs > now) {
+                current.copy(targetElapsedRealtimeMs = SystemClock.elapsedRealtime() + remSec * 1000L)
+              } else current
+            app.container.preferences.saveTimerState(reanchored)
+            startForegroundAndTicker(app, reanchored)
           } else {
             stopSelf()
           }
@@ -167,7 +256,9 @@ class FocusTimerService : Service() {
           val state = app.container.preferences.timerStateFlow.first()
           if (!state.isRunning || state.phase == TimerPhase.IDLE) break
           val now = System.currentTimeMillis()
-          if (state.mode != TimerMode.STOPWATCH && now >= state.targetEndEpochMs) {
+          val elapsedNow = SystemClock.elapsedRealtime()
+          val remainingSec = remainingSecondsForState(state, now, elapsedNow)
+          if (state.mode != TimerMode.STOPWATCH && remainingSec <= 0L) {
             handlePhaseFinished(app, state)
             break
           }
@@ -333,14 +424,23 @@ class FocusTimerService : Service() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
       )
     val now = System.currentTimeMillis()
+    val elapsedNow = SystemClock.elapsedRealtime()
     val displayText =
       if (state.mode == TimerMode.STOPWATCH) {
         val elapsed = state.stopwatchElapsedBaseSeconds + ((now - state.startedAtEpochMs) / 1000L).coerceAtLeast(0L)
         "${state.sessionType.label} • ${FocusTimeUtils.formatTimerSeconds(elapsed)}"
       } else {
-        val rem = ((state.targetEndEpochMs - now) / 1000L).coerceAtLeast(0L)
+        val rem = remainingSecondsForState(state, now, elapsedNow)
         "${state.phase.label} (${state.sessionType.label}) • ${FocusTimeUtils.formatTimerSeconds(rem)}"
       }
+
+    val pauseIntent =
+      PendingIntent.getService(
+        this,
+        1,
+        Intent(this, FocusTimerService::class.java).apply { action = ACTION_PAUSE },
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+      )
 
     return NotificationCompat.Builder(this, FocusNestApplication.CHANNEL_TIMER)
       .setSmallIcon(R.drawable.ic_launcher_monochrome)
@@ -348,6 +448,7 @@ class FocusTimerService : Service() {
       .setContentText(displayText)
       .setOngoing(true)
       .setOnlyAlertOnce(true)
+      .addAction(0, "Pause", pauseIntent)
       .setContentIntent(openIntent)
       .build()
   }
@@ -368,13 +469,30 @@ class FocusTimerService : Service() {
     const val ACTION_RESUME = "com.example.focusnest.TIMER_RESUME"
     const val ACTION_STOP = "com.example.focusnest.TIMER_STOP"
     const val ACTION_RESTORE = "com.example.focusnest.TIMER_RESTORE"
+    const val ACTION_SKIP_BREAK = "com.example.focusnest.TIMER_SKIP_BREAK"
+    const val ACTION_EXTEND = "com.example.focusnest.TIMER_EXTEND"
+    const val ACTION_RESTART = "com.example.focusnest.TIMER_RESTART"
 
     const val EXTRA_MODE = "extra_mode"
     const val EXTRA_SESSION_TYPE = "extra_session_type"
     const val EXTRA_MINUTES = "extra_minutes"
+    const val EXTRA_DELTA_MINUTES = "extra_delta_minutes"
     const val EXTRA_NOTE = "extra_note"
     const val EXTRA_PROFILE_ID = "extra_profile_id"
     const val EXTRA_COMPLETED = "extra_completed"
+
+    fun remainingSecondsForState(
+      state: PersistedTimerState,
+      nowEpochMs: Long,
+      elapsedRealtimeMs: Long,
+    ): Long {
+      if (!state.isRunning) return state.pausedRemainingSeconds.coerceAtLeast(0L)
+      return if (state.targetElapsedRealtimeMs > 0L) {
+        ((state.targetElapsedRealtimeMs - elapsedRealtimeMs) / 1000L).coerceAtLeast(0L)
+      } else {
+        ((state.targetEndEpochMs - nowEpochMs) / 1000L).coerceAtLeast(0L)
+      }
+    }
 
     fun startTimer(
       context: Context,
@@ -400,13 +518,22 @@ class FocusTimerService : Service() {
       }
     }
 
+    fun extendTimer(context: Context, deltaMinutes: Int = 5) {
+      val intent =
+        Intent(context, FocusTimerService::class.java).apply {
+          action = ACTION_EXTEND
+          putExtra(EXTRA_DELTA_MINUTES, deltaMinutes)
+        }
+      context.startService(intent)
+    }
+
     fun sendAction(context: Context, action: String, completed: Boolean = false) {
       val intent =
         Intent(context, FocusTimerService::class.java).apply {
           this.action = action
           putExtra(EXTRA_COMPLETED, completed)
         }
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && action == ACTION_RESUME) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && (action == ACTION_RESUME || action == ACTION_SKIP_BREAK || action == ACTION_RESTART)) {
         context.startForegroundService(intent)
       } else {
         context.startService(intent)

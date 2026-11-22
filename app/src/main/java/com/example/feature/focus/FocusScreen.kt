@@ -14,11 +14,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
@@ -48,7 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.example.R
 import com.example.core.database.BlockProfileEntity
 import com.example.core.database.FocusGoalEntity
 import com.example.core.database.FocusSessionEntity
@@ -86,6 +92,9 @@ fun FocusScreen(
   onResumeTimer: () -> Unit,
   onStopTimer: (Boolean) -> Unit,
   onSavePomodoroConfig: (Int, Int, Int, Int, Int, Boolean, Boolean, Boolean) -> Unit,
+  onExtendTimer: (Int) -> Unit = {},
+  onRestartTimer: () -> Unit = {},
+  onSkipBreak: () -> Unit = {},
 ) {
   var selectedMode by rememberSaveable { mutableStateOf(timerState.mode) }
   var selectedType by rememberSaveable { mutableStateOf(timerState.sessionType) }
@@ -222,6 +231,18 @@ fun FocusScreen(
             if (selectedMode != TimerMode.STOPWATCH) {
               Spacer(modifier = Modifier.height(12.dp))
               Text("Duration: $customMinutes min", style = MaterialTheme.typography.titleMedium)
+              FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+              ) {
+                listOf(15, 25, 45, 60, 90).forEach { preset ->
+                  FilterChip(
+                    selected = customMinutes == preset,
+                    onClick = { customMinutes = preset },
+                    label = { Text("${preset}m") },
+                  )
+                }
+              }
               Slider(
                 value = customMinutes.toFloat(),
                 onValueChange = { customMinutes = (it.toInt() / 5) * 5 },
@@ -270,6 +291,35 @@ fun FocusScreen(
               Text("Start ${selectedType.label} Session")
             }
           } else {
+            if (timerState.phase == TimerPhase.SHORT_BREAK || timerState.phase == TimerPhase.LONG_BREAK) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(bottom = 10.dp),
+              ) {
+                Image(
+                  painter = painterResource(R.drawable.ic_focus_meditate),
+                  contentDescription = "Mindful break rest",
+                  modifier = Modifier.height(48.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                  Text("Mindful Break Window", style = MaterialTheme.typography.titleMedium)
+                  Text(
+                    "Stretch, hydrate, and rest your eyes before the next cycle.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+                OutlinedButton(
+                  onClick = onSkipBreak,
+                  modifier = Modifier.testTag("focus_skip_break_btn"),
+                ) {
+                  Icon(Icons.Default.SkipNext, contentDescription = null)
+                  Text("Skip")
+                }
+              }
+            }
+
             Row(
               modifier = Modifier.fillMaxWidth(),
               horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -298,6 +348,30 @@ fun FocusScreen(
                 modifier = Modifier.height(50.dp).testTag("focus_cancel_btn"),
               ) {
                 Icon(Icons.Default.Stop, contentDescription = "Stop session")
+              }
+            }
+            if (activeMode != TimerMode.STOPWATCH) {
+              Spacer(modifier = Modifier.height(8.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+              ) {
+                OutlinedButton(
+                  onClick = { onExtendTimer(5) },
+                  modifier = Modifier.weight(1f).testTag("focus_extend_btn"),
+                ) {
+                  Icon(Icons.Default.Add, contentDescription = null)
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text("+5m Extend")
+                }
+                OutlinedButton(
+                  onClick = onRestartTimer,
+                  modifier = Modifier.weight(1f).testTag("focus_restart_btn"),
+                ) {
+                  Icon(Icons.Default.Replay, contentDescription = null)
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text("Restart")
+                }
               }
             }
           }

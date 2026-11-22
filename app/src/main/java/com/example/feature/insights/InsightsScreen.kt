@@ -58,6 +58,7 @@ import com.example.core.database.FocusSessionEntity
 import com.example.core.database.UnlockHistoryEntity
 import com.example.core.design.BarChartCard
 import com.example.core.design.FocusNestEmptyState
+import com.example.core.design.InstalledAppIcon
 import com.example.core.design.MeasuredBadge
 import com.example.core.design.MetricTile
 import com.example.core.design.SanctuaryCard
@@ -150,6 +151,15 @@ fun InsightsScreen(
 
   val totalScreenMinutes = (activeUsage.sumOf { it.foregroundTimeMs } / 60_000L).toInt()
   val totalFocusMinutes = (filteredSessions.sumOf { it.elapsedSeconds } / 60L).toInt()
+  val longestSessionMinutes =
+    remember(filteredSessions) { ((filteredSessions.maxOfOrNull { it.elapsedSeconds } ?: 0L) / 60L).toInt() }
+  val bestFocusDay =
+    remember(filteredSessions) {
+      filteredSessions
+        .groupBy { it.dateKey }
+        .maxByOrNull { (_, list) -> list.sumOf { it.elapsedSeconds } }
+        ?.let { (day, list) -> "$day (${(list.sumOf { it.elapsedSeconds } / 60L)}m)" }
+    }
   val blockedTotal = filteredAnalytics.sumOf { it.blockedAttemptsCount }
   val unlockTotal = unlockHistory.count { it.dateKey >= startDateKey && it.granted }
 
@@ -286,6 +296,14 @@ fun InsightsScreen(
               style = MaterialTheme.typography.bodyMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (longestSessionMinutes > 0) {
+              Text(
+                "Longest Session: ${longestSessionMinutes}m" +
+                  if (bestFocusDay != null) " • Best Day: $bestFocusDay" else "",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
           }
         }
       }
@@ -334,7 +352,10 @@ fun InsightsScreen(
             Row(
               modifier = Modifier.fillMaxWidth().padding(14.dp),
               horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
             ) {
+              InstalledAppIcon(packageName = app.packageName, appName = app.appName, size = 36.dp)
+              Spacer(modifier = Modifier.width(12.dp))
               Column(modifier = Modifier.weight(1f)) {
                 Text(app.appName, style = MaterialTheme.typography.titleMedium)
                 Text(

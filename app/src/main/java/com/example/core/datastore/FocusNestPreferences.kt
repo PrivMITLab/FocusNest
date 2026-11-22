@@ -48,6 +48,7 @@ data class FocusNestSettings(
   val breakReminderEnabled: Boolean = false,
   val breakReminderIntervalMinutes: Int = 45,
   val vpnBlockingEnabled: Boolean = false,
+  val blockedNetworkPackages: Set<String> = emptySet(),
   val reelsReductionEnabled: Boolean = false,
   val notificationFilterEnabled: Boolean = false,
   val appOpeningCooldownSeconds: Int = 10,
@@ -60,6 +61,7 @@ data class PersistedTimerState(
   val sessionType: SessionType = SessionType.STUDY,
   val plannedMinutes: Int = 25,
   val targetEndEpochMs: Long = 0L,
+  val targetElapsedRealtimeMs: Long = 0L,
   val startedAtEpochMs: Long = 0L,
   val pausedRemainingSeconds: Long = 25 * 60L,
   val stopwatchElapsedBaseSeconds: Long = 0L,
@@ -100,6 +102,7 @@ class FocusNestPreferences(private val context: Context) {
     val BREAK_REMINDER_ENABLED = booleanPreferencesKey("break_reminder_enabled")
     val BREAK_REMINDER_MIN = intPreferencesKey("break_reminder_min")
     val VPN_BLOCKING_ENABLED = booleanPreferencesKey("vpn_blocking_enabled")
+    val BLOCKED_NETWORK_PACKAGES = stringPreferencesKey("blocked_network_packages")
     val REELS_REDUCTION_ENABLED = booleanPreferencesKey("reels_reduction_enabled")
     val NOTIFICATION_FILTER_ENABLED = booleanPreferencesKey("notification_filter_enabled")
     val APP_COOLDOWN_SEC = intPreferencesKey("app_cooldown_sec")
@@ -111,6 +114,7 @@ class FocusNestPreferences(private val context: Context) {
     val TIMER_SESSION_TYPE = stringPreferencesKey("timer_session_type")
     val TIMER_PLANNED_MIN = intPreferencesKey("timer_planned_min")
     val TIMER_TARGET_END = longPreferencesKey("timer_target_end")
+    val TIMER_TARGET_ELAPSED = longPreferencesKey("timer_target_elapsed")
     val TIMER_STARTED_AT = longPreferencesKey("timer_started_at")
     val TIMER_PAUSED_REMAINING = longPreferencesKey("timer_paused_remaining")
     val TIMER_STOPWATCH_BASE = longPreferencesKey("timer_stopwatch_base")
@@ -153,6 +157,12 @@ class FocusNestPreferences(private val context: Context) {
         breakReminderEnabled = prefs[Keys.BREAK_REMINDER_ENABLED] ?: false,
         breakReminderIntervalMinutes = prefs[Keys.BREAK_REMINDER_MIN] ?: 45,
         vpnBlockingEnabled = prefs[Keys.VPN_BLOCKING_ENABLED] ?: false,
+        blockedNetworkPackages =
+          (prefs[Keys.BLOCKED_NETWORK_PACKAGES] ?: "")
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet(),
         reelsReductionEnabled = prefs[Keys.REELS_REDUCTION_ENABLED] ?: false,
         notificationFilterEnabled = prefs[Keys.NOTIFICATION_FILTER_ENABLED] ?: false,
         appOpeningCooldownSeconds = prefs[Keys.APP_COOLDOWN_SEC] ?: 10,
@@ -175,6 +185,7 @@ class FocusNestPreferences(private val context: Context) {
             .getOrDefault(SessionType.STUDY),
         plannedMinutes = prefs[Keys.TIMER_PLANNED_MIN] ?: 25,
         targetEndEpochMs = prefs[Keys.TIMER_TARGET_END] ?: 0L,
+        targetElapsedRealtimeMs = prefs[Keys.TIMER_TARGET_ELAPSED] ?: 0L,
         startedAtEpochMs = prefs[Keys.TIMER_STARTED_AT] ?: 0L,
         pausedRemainingSeconds = prefs[Keys.TIMER_PAUSED_REMAINING] ?: (25 * 60L),
         stopwatchElapsedBaseSeconds = prefs[Keys.TIMER_STOPWATCH_BASE] ?: 0L,
@@ -219,6 +230,12 @@ class FocusNestPreferences(private val context: Context) {
           breakReminderEnabled = prefs[Keys.BREAK_REMINDER_ENABLED] ?: false,
           breakReminderIntervalMinutes = prefs[Keys.BREAK_REMINDER_MIN] ?: 45,
           vpnBlockingEnabled = prefs[Keys.VPN_BLOCKING_ENABLED] ?: false,
+          blockedNetworkPackages =
+            (prefs[Keys.BLOCKED_NETWORK_PACKAGES] ?: "")
+              .split(",")
+              .map { it.trim() }
+              .filter { it.isNotEmpty() }
+              .toSet(),
           reelsReductionEnabled = prefs[Keys.REELS_REDUCTION_ENABLED] ?: false,
           notificationFilterEnabled = prefs[Keys.NOTIFICATION_FILTER_ENABLED] ?: false,
           appOpeningCooldownSeconds = prefs[Keys.APP_COOLDOWN_SEC] ?: 10,
@@ -251,6 +268,7 @@ class FocusNestPreferences(private val context: Context) {
       prefs[Keys.BREAK_REMINDER_ENABLED] = next.breakReminderEnabled
       prefs[Keys.BREAK_REMINDER_MIN] = next.breakReminderIntervalMinutes
       prefs[Keys.VPN_BLOCKING_ENABLED] = next.vpnBlockingEnabled
+      prefs[Keys.BLOCKED_NETWORK_PACKAGES] = next.blockedNetworkPackages.joinToString(",")
       prefs[Keys.REELS_REDUCTION_ENABLED] = next.reelsReductionEnabled
       prefs[Keys.NOTIFICATION_FILTER_ENABLED] = next.notificationFilterEnabled
       prefs[Keys.APP_COOLDOWN_SEC] = next.appOpeningCooldownSeconds
@@ -265,6 +283,7 @@ class FocusNestPreferences(private val context: Context) {
       prefs[Keys.TIMER_SESSION_TYPE] = state.sessionType.name
       prefs[Keys.TIMER_PLANNED_MIN] = state.plannedMinutes
       prefs[Keys.TIMER_TARGET_END] = state.targetEndEpochMs
+      prefs[Keys.TIMER_TARGET_ELAPSED] = state.targetElapsedRealtimeMs
       prefs[Keys.TIMER_STARTED_AT] = state.startedAtEpochMs
       prefs[Keys.TIMER_PAUSED_REMAINING] = state.pausedRemainingSeconds
       prefs[Keys.TIMER_STOPWATCH_BASE] = state.stopwatchElapsedBaseSeconds

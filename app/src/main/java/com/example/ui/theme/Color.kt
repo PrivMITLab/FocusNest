@@ -43,6 +43,26 @@ fun focusNestLightScheme(palette: AccentPalette): ColorScheme {
         outlineVariant = Color(0xFFC3D0CB),
         error = Color(0xFFB3261E),
       )
+    AccentPalette.INDIGO_FOCUS ->
+      lightColorScheme(
+        primary = Color(0xFF6558E8),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFE5E2FF),
+        onPrimaryContainer = Color(0xFF19125C),
+        secondary = Color(0xFF56C8C2),
+        onSecondary = Color(0xFF002B28),
+        secondaryContainer = Color(0xFFD2F5F2),
+        tertiary = Color(0xFF28897A),
+        tertiaryContainer = Color(0xFFC5F0E4),
+        background = Color(0xFFF7F7FC),
+        onBackground = Color(0xFF171824),
+        surface = Color(0xFFF7F7FC),
+        onSurface = Color(0xFF171824),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF1F1FA),
+        surfaceContainer = Color(0xFFE9E9F5),
+        surfaceContainerHigh = Color(0xFFE1E1F0),
+      )
     AccentPalette.WARM_AMBER ->
       lightColorScheme(
         primary = Color(0xFF8C5308),
@@ -138,6 +158,26 @@ fun focusNestDarkScheme(palette: AccentPalette): ColorScheme {
         surfaceContainerHigh = Color(0xFF1E2F2A),
         outline = Color(0xFF586B64),
         outlineVariant = Color(0xFF2B3D37),
+      )
+    AccentPalette.INDIGO_FOCUS ->
+      darkColorScheme(
+        primary = Color(0xFF8B7CF6),
+        onPrimary = Color(0xFF1C135E),
+        primaryContainer = Color(0xFF342A8E),
+        onPrimaryContainer = Color(0xFFE5E2FF),
+        secondary = Color(0xFF56C8C2),
+        onSecondary = Color(0xFF002B28),
+        secondaryContainer = Color(0xFF154946),
+        tertiary = Color(0xFFF4B860),
+        tertiaryContainer = Color(0xFF5C3B08),
+        background = Color(0xFF10111A),
+        onBackground = Color(0xFFEAECFA),
+        surface = Color(0xFF10111A),
+        onSurface = Color(0xFFEAECFA),
+        surfaceContainerLowest = Color(0xFF0B0C14),
+        surfaceContainerLow = Color(0xFF1B1C28),
+        surfaceContainer = Color(0xFF222434),
+        surfaceContainerHigh = Color(0xFF2A2C3E),
       )
     AccentPalette.WARM_AMBER ->
       darkColorScheme(

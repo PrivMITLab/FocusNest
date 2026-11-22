@@ -292,6 +292,9 @@ interface TokenVaultDao {
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun upsertQrToken(token: QrTokenEntity): Long
 
+  @Query("UPDATE qr_tokens SET isConsumed = 1 WHERE id = :id")
+  suspend fun markQrTokenConsumed(id: Long)
+
   @Delete
   suspend fun deleteQrToken(token: QrTokenEntity)
 }
@@ -309,4 +312,61 @@ interface ShortFormRuleDao {
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun upsertAll(rules: List<ShortFormRuleEntity>)
+}
+
+@Dao
+interface HabitDao {
+  @Query("SELECT * FROM habits WHERE isArchived = 0 ORDER BY createdAtEpochMs DESC")
+  fun observeActiveHabits(): Flow<List<HabitEntity>>
+
+  @Query("SELECT * FROM habits ORDER BY createdAtEpochMs DESC")
+  suspend fun getAllHabits(): List<HabitEntity>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertHabit(habit: HabitEntity): Long
+
+  @Delete
+  suspend fun deleteHabit(habit: HabitEntity)
+
+  @Query("SELECT * FROM habit_completions ORDER BY dateKey DESC")
+  fun observeAllCompletions(): Flow<List<HabitCompletionEntity>>
+
+  @Query("SELECT * FROM habit_completions WHERE dateKey BETWEEN :startDateKey AND :endDateKey")
+  suspend fun getCompletionsInRange(startDateKey: String, endDateKey: String): List<HabitCompletionEntity>
+
+  @Query("SELECT * FROM habit_completions WHERE habitId = :habitId AND dateKey = :dateKey LIMIT 1")
+  suspend fun getCompletionForHabitDate(habitId: Long, dateKey: String): HabitCompletionEntity?
+
+  @Query("SELECT * FROM habit_completions ORDER BY dateKey DESC")
+  suspend fun getAllCompletions(): List<HabitCompletionEntity>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertCompletion(completion: HabitCompletionEntity): Long
+
+  @Query("DELETE FROM habit_completions")
+  suspend fun deleteAllCompletions()
+
+  @Query("DELETE FROM habits")
+  suspend fun deleteAllHabits()
+}
+
+@Dao
+interface CategoryLimitDao {
+  @Query("SELECT * FROM category_limits ORDER BY categoryName ASC")
+  fun observeAll(): Flow<List<CategoryLimitEntity>>
+
+  @Query("SELECT * FROM category_limits ORDER BY categoryName ASC")
+  suspend fun getAll(): List<CategoryLimitEntity>
+
+  @Query("SELECT * FROM category_limits WHERE categoryName = :categoryName LIMIT 1")
+  suspend fun getByCategory(categoryName: String): CategoryLimitEntity?
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsert(limit: CategoryLimitEntity)
+
+  @Query("DELETE FROM category_limits WHERE categoryName = :categoryName")
+  suspend fun deleteByCategory(categoryName: String)
+
+  @Query("DELETE FROM category_limits")
+  suspend fun deleteAll()
 }

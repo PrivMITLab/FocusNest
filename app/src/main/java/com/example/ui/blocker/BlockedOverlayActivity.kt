@@ -10,7 +10,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -20,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -48,9 +53,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.FocusNestApplication
+import com.example.R
 import com.example.core.common.KeystoreAndBackupCrypto
 import com.example.core.design.FocusNestLogoMark
 import com.example.core.design.SanctuaryCard
@@ -102,9 +109,9 @@ class BlockedOverlayActivity : ComponentActivity() {
           emergencyPasscodeHash = settings.emergencyPasscodeHash,
           onVerifyQrOrBarcode = { code, onSuccess ->
             scope.launch {
-              val token = app.container.blockerRepository.verifyQrOrBarcodeToken(code)
+              val (token, errMsg) = app.container.blockerRepository.verifyAndConsumeQrOrBarcodeToken(code)
               if (token != null) onSuccess()
-              else errorText = "Code not registered in FocusNest NFC & QR Vault."
+              else errorText = errMsg ?: "Code not registered in FocusNest NFC & QR Vault."
             }
           },
           onVerifyNfcUid = { uid, onSuccess ->
@@ -224,12 +231,16 @@ private fun BlockedScreenContent(
   onReturnHome: () -> Unit,
 ) {
   var chosenUnlockMinutes by remember { mutableIntStateOf(5) }
-  var mathChallenge by remember { mutableStateOf(UnlockChallengeEngine.generateMathChallenge(2)) }
+  var mathAttemptCount by remember { mutableIntStateOf(2) }
+  var mathChallenge by remember(mathAttemptCount) { mutableStateOf(UnlockChallengeEngine.generateMathChallenge(mathAttemptCount)) }
   var mathInput by remember { mutableStateOf("") }
   val expectedSentence = remember { UnlockChallengeEngine.pickSentence(appName.hashCode()) }
   var sentenceInput by remember { mutableStateOf("") }
   var intentionInput by remember { mutableStateOf("") }
   var cooldownRemaining by remember { mutableIntStateOf(15) }
+  var breathingSecondsLeft by remember { mutableIntStateOf(20) }
+  var breathingPhaseText by remember { mutableStateOf("Inhale slowly…") }
+  var breathingScaleTarget by remember { mutableStateOf(0.55f) }
   var showScanner by remember { mutableStateOf(false) }
   var showEmergencyBox by remember { mutableStateOf(false) }
   var emergencyPin by remember { mutableStateOf("") }
@@ -242,6 +253,31 @@ private fun BlockedScreenContent(
         delay(1000L)
         cooldownRemaining--
       }
+    }
+    if (challengeType == UnlockChallengeType.BREATHING) {
+      breathingSecondsLeft = 20
+      for (step in 20 downTo 1) {
+        breathingSecondsLeft = step
+        val elapsed = 20 - step
+        val cycleSec = elapsed % 10
+        when {
+          cycleSec < 4 -> {
+            breathingPhaseText = "Inhale slowly… (4s)"
+            breathingScaleTarget = 1.0f
+          }
+          cycleSec < 6 -> {
+            breathingPhaseText = "Hold gently… (2s)"
+            breathingScaleTarget = 1.0f
+          }
+          else -> {
+            breathingPhaseText = "Exhale slowly… (4s)"
+            breathingScaleTarget = 0.55f
+          }
+        }
+        delay(1000L)
+      }
+      breathingSecondsLeft = 0
+      breathingPhaseText = "Breathing cycle complete"
     }
   }
 
@@ -263,7 +299,13 @@ private fun BlockedScreenContent(
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.Center,
     ) {
-      FocusNestLogoMark(size = 56.dp)
+      androidx.compose.foundation.Image(
+        painter = painterResource(if (isReelsPause) R.drawable.ic_focus_meditate else R.drawable.ic_blocking_shield),
+        contentDescription = null,
+        modifier = Modifier.size(64.dp),
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+      FocusNestLogoMark(size = 44.dp)
       Spacer(modifier = Modifier.height(14.dp))
       Text(
         text = if (isReelsPause) "Take a Mindful Breath" else "$appName Is Paused",
@@ -347,17 +389,28 @@ private fun BlockedScreenContent(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
               )
-              Button(
-                onClick = {
-                  if (mathInput.trim().toIntOrNull() == mathChallenge.expectedAnswer) {
-                    onGrantUnlock(chosenUnlockMinutes, "Solved adaptive math")
-                  } else {
-                    localError = "Incorrect answer. Try again."
-                  }
-                },
-                modifier = Modifier.fillMaxWidth(),
-              ) {
-                Text("Submit Answer")
+              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                  onClick = {
+                    if (mathInput.trim().toIntOrNull() == mathChallenge.expectedAnswer) {
+                      onGrantUnlock(chosenUnlockMinutes, "Solved adaptive math")
+                    } else {
+                      localError = "Incorrect answer. Try again."
+                    }
+                  },
+                  modifier = Modifier.weight(1f),
+                ) {
+                  Text("Submit Answer")
+                }
+                OutlinedButton(
+                  onClick = {
+                    mathAttemptCount += 2
+                    mathInput = ""
+                    localError = null
+                  },
+                ) {
+                  Text("New")
+                }
               }
             }
             UnlockChallengeType.SENTENCE_TYPING -> {
@@ -383,6 +436,16 @@ private fun BlockedScreenContent(
               }
             }
             UnlockChallengeType.INTENTION_ENTRY -> {
+              Text("Quick reasons (tap to autofill):", style = MaterialTheme.typography.labelLarge)
+              FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                UnlockChallengeEngine.predefinedIntentionReasons.forEach { preset ->
+                  FilterChip(
+                    selected = intentionInput == preset,
+                    onClick = { intentionInput = preset },
+                    label = { Text(preset) },
+                  )
+                }
+              }
               OutlinedTextField(
                 value = intentionInput,
                 onValueChange = { intentionInput = it },
@@ -401,6 +464,44 @@ private fun BlockedScreenContent(
                 modifier = Modifier.fillMaxWidth(),
               ) {
                 Text("Confirm Intention")
+              }
+            }
+            UnlockChallengeType.BREATHING -> {
+              val animScale by animateFloatAsState(
+                targetValue = breathingScaleTarget,
+                animationSpec = tween(durationMillis = 1500),
+                label = "breathOrb",
+              )
+              val orbColor = MaterialTheme.colorScheme.primary
+              Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+              ) {
+                Box(modifier = Modifier.size(120.dp), contentAlignment = Alignment.Center) {
+                  Canvas(modifier = Modifier.size(120.dp)) {
+                    drawCircle(
+                      color = orbColor.copy(alpha = 0.25f),
+                      radius = (size.minDimension / 2f) * animScale,
+                    )
+                    drawCircle(
+                      color = orbColor.copy(alpha = 0.65f),
+                      radius = (size.minDimension / 3.2f) * animScale,
+                    )
+                  }
+                  Text(
+                    text = if (breathingSecondsLeft > 0) "${breathingSecondsLeft}s" else "Done",
+                    style = MaterialTheme.typography.titleLarge,
+                  )
+                }
+                Text(breathingPhaseText, style = MaterialTheme.typography.bodyLarge)
+                Button(
+                  enabled = breathingSecondsLeft == 0,
+                  onClick = { onGrantUnlock(chosenUnlockMinutes, "Completed mindful breathing cycle") },
+                  modifier = Modifier.fillMaxWidth(),
+                ) {
+                  Text("Continue (${chosenUnlockMinutes}m)")
+                }
               }
             }
             UnlockChallengeType.QR_SCAN,

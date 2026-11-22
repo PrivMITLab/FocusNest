@@ -59,12 +59,14 @@ import com.example.core.database.AppLimitEntity
 import com.example.core.database.AppUsageEntity
 import com.example.core.database.BlockProfileEntity
 import com.example.core.database.BlockingScheduleEntity
+import com.example.core.database.CategoryLimitEntity
 import com.example.core.database.InstalledAppEntity
 import com.example.core.database.ShortFormRuleEntity
 import com.example.core.database.UnlockHistoryEntity
 import com.example.core.database.WebsiteRuleEntity
 import com.example.core.datastore.FocusNestSettings
 import com.example.core.design.FocusNestEmptyState
+import com.example.core.design.InstalledAppIcon
 import com.example.core.design.SanctuaryCard
 import com.example.core.design.SectionHeader
 import com.example.core.permissions.PermissionManager
@@ -90,7 +92,7 @@ fun BlockerScreen(
   unlockHistory: List<UnlockHistoryEntity>,
   onRefreshPermissions: () -> Unit,
   onToggleEmergencyWhitelist: (String, Boolean) -> Unit,
-  onSaveAppLimit: (String, String, Int, Int, Boolean, UnlockChallengeType) -> Unit,
+  onSaveAppLimit: (String, String, Int, Int, Boolean, UnlockChallengeType, Int, String) -> Unit,
   onDeleteAppLimit: (String) -> Unit,
   onSaveAppGroup: (String, List<String>, Int) -> Unit,
   onDeleteAppGroup: (AppGroupEntity) -> Unit,
@@ -106,6 +108,10 @@ fun BlockerScreen(
   onInstallWebsitePack: (String) -> Unit,
   onStartVpn: () -> Unit,
   onStopVpn: () -> Unit,
+  categoryLimits: List<CategoryLimitEntity> = emptyList(),
+  onSaveCategoryLimit: (String, Int, Boolean, UnlockChallengeType) -> Unit = { _, _, _, _ -> },
+  onDeleteCategoryLimit: (String) -> Unit = {},
+  onToggleBlockedNetworkPackage: (String, Boolean) -> Unit = { _, _ -> },
 ) {
   val context = LocalContext.current
   var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -115,6 +121,7 @@ fun BlockerScreen(
   var selectedCategory by rememberSaveable { mutableStateOf<AppCategory?>(null) }
   var editingLimitForApp by remember { mutableStateOf<InstalledAppEntity?>(null) }
   var showCreateGroupDialog by remember { mutableStateOf(false) }
+  var showCategoryLimitDialog by remember { mutableStateOf(false) }
   var showCreateProfileDialog by remember { mutableStateOf(false) }
   var showCreateScheduleDialog by remember { mutableStateOf(false) }
   var newDomainInput by rememberSaveable { mutableStateOf("") }
@@ -205,7 +212,13 @@ fun BlockerScreen(
               ) {
                 Icon(Icons.Default.GroupWork, contentDescription = null)
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("New App Group")
+                Text("App Group")
+              }
+              OutlinedButton(
+                onClick = { showCategoryLimitDialog = true },
+                modifier = Modifier.weight(1f).testTag("blocker_new_category_limit_btn"),
+              ) {
+                Text("Category Cap")
               }
               OutlinedButton(
                 onClick = {
@@ -213,12 +226,39 @@ fun BlockerScreen(
                     context = context,
                     packageName = installedApps.firstOrNull()?.packageName ?: "com.example.demo",
                     appName = installedApps.firstOrNull()?.appName ?: "Sample App",
-                    challengeType = UnlockChallengeType.ADAPTIVE_MATH,
+                    challengeType = UnlockChallengeType.BREATHING,
                   )
                 },
                 modifier = Modifier.weight(1f).testTag("blocker_preview_overlay_btn"),
               ) {
-                Text("Test Block Screen")
+                Text("Preview")
+              }
+            }
+          }
+
+          if (categoryLimits.isNotEmpty()) {
+            item {
+              SectionHeader("Category Daily Caps", subtitle = "Aggregate limits per app category")
+            }
+            items(categoryLimits, key = { "cat_${it.categoryName}" }) { cat ->
+              SanctuaryCard {
+                Row(
+                  modifier = Modifier.fillMaxWidth().padding(14.dp),
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Column(modifier = Modifier.weight(1f)) {
+                    Text(cat.categoryName, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                      "${cat.dailyLimitMinutes}m daily cap • ${cat.challengeType}",
+                      style = MaterialTheme.typography.bodyMedium,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                  }
+                  IconButton(onClick = { onDeleteCategoryLimit(cat.categoryName) }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete category limit")
+                  }
+                }
               }
             }
           }
@@ -296,6 +336,8 @@ fun BlockerScreen(
                   horizontalArrangement = Arrangement.SpaceBetween,
                   verticalAlignment = Alignment.CenterVertically,
                 ) {
+                  InstalledAppIcon(packageName = app.packageName, appName = app.appName, size = 36.dp)
+                  Spacer(modifier = Modifier.width(10.dp))
                   Column(modifier = Modifier.weight(1f)) {
                     Text(app.appName, style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -312,6 +354,7 @@ fun BlockerScreen(
                         buildString {
                           if (limit.isBlockedManually) append("Blocked • ")
                           if (limit.dailyLimitMinutes > 0) append("${limit.dailyLimitMinutes}m/day ")
+                          if (limit.gracePeriodMinutes > 0) append("+${limit.gracePeriodMinutes}m grace ")
                           if (limit.weeklyLimitMinutes > 0) append("${limit.weeklyLimitMinutes}m/wk ")
                           append("(${limit.challengeType})")
                         },
@@ -609,6 +652,32 @@ fun BlockerScreen(
             }
           }
 
+          item {
+            SanctuaryCard {
+              Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Per-App VPN Network Scope", style = MaterialTheme.typography.titleMedium)
+                Text(
+                  if (settings.blockedNetworkPackages.isEmpty())
+                    "All non-FocusNest apps route DNS queries through the local filter. Toggle specific browsers or distracting apps below to restrict scope strictly to them."
+                  else
+                    "${settings.blockedNetworkPackages.size} app(s) selected for per-app DNS filtering. Encrypted Private DNS / DoH in system settings may bypass local DNS rules.",
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                  installedApps.take(12).forEach { app ->
+                    val active = app.packageName in settings.blockedNetworkPackages
+                    FilterChip(
+                      selected = active,
+                      onClick = { onToggleBlockedNetworkPackage(app.packageName, !active) },
+                      label = { Text(app.appName) },
+                    )
+                  }
+                }
+              }
+            }
+          }
+
           items(websiteRules, key = { it.id }) { rule ->
             SanctuaryCard {
               Row(
@@ -641,7 +710,7 @@ fun BlockerScreen(
         ) {
           item {
             SectionHeader(
-              "11 Configurable Unlock Mechanisms",
+              "12 Configurable Unlock Mechanisms",
               subtitle = "Choose per-app or per-profile friction when unlocking",
             )
           }
@@ -717,6 +786,7 @@ fun BlockerScreen(
     val existing = limitsMap[app.packageName]
     var dailyMin by remember { mutableIntStateOf(existing?.dailyLimitMinutes ?: 30) }
     var weeklyMin by remember { mutableIntStateOf(existing?.weeklyLimitMinutes ?: 0) }
+    var graceMin by remember { mutableIntStateOf(existing?.gracePeriodMinutes ?: 0) }
     var manualBlock by remember { mutableStateOf(existing?.isBlockedManually ?: false) }
     var challenge by remember {
       mutableStateOf(
@@ -736,12 +806,15 @@ fun BlockerScreen(
           }
           Text("Daily Limit: ${if (dailyMin == 0) "Off" else "${dailyMin}m"}")
           Slider(value = dailyMin.toFloat(), onValueChange = { dailyMin = (it.toInt() / 5) * 5 }, valueRange = 0f..240f)
+          Text("Grace Period after limit: ${if (graceMin == 0) "Off" else "+${graceMin}m"}")
+          Slider(value = graceMin.toFloat(), onValueChange = { graceMin = it.toInt() }, valueRange = 0f..15f)
           Text("Weekly Limit: ${if (weeklyMin == 0) "Off" else "${weeklyMin}m"}")
           Slider(value = weeklyMin.toFloat(), onValueChange = { weeklyMin = (it.toInt() / 15) * 15 }, valueRange = 0f..900f)
           Text("Unlock Challenge", style = MaterialTheme.typography.labelLarge)
           FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(
               UnlockChallengeType.REFLECTION_REMINDER,
+              UnlockChallengeType.BREATHING,
               UnlockChallengeType.ADAPTIVE_MATH,
               UnlockChallengeType.SENTENCE_TYPING,
               UnlockChallengeType.INTENTION_ENTRY,
@@ -762,7 +835,7 @@ fun BlockerScreen(
       confirmButton = {
         Button(
           onClick = {
-            onSaveAppLimit(app.packageName, app.appName, dailyMin, weeklyMin, manualBlock, challenge)
+            onSaveAppLimit(app.packageName, app.appName, dailyMin, weeklyMin, manualBlock, challenge, graceMin, app.category)
             editingLimitForApp = null
           }
         ) {
@@ -784,6 +857,50 @@ fun BlockerScreen(
           TextButton(onClick = { editingLimitForApp = null }) { Text("Cancel") }
         }
       },
+    )
+  }
+
+  if (showCategoryLimitDialog) {
+    var chosenCategory by remember { mutableStateOf(AppCategory.SOCIAL) }
+    var catMinutes by remember { mutableIntStateOf(60) }
+    var catChallenge by remember { mutableStateOf(UnlockChallengeType.BREATHING) }
+    AlertDialog(
+      onDismissRequest = { showCategoryLimitDialog = false },
+      title = { Text("Category Daily Cap") },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AppCategory.entries.forEach { cat ->
+              FilterChip(
+                selected = chosenCategory == cat,
+                onClick = { chosenCategory = cat },
+                label = { Text(cat.label) },
+              )
+            }
+          }
+          Text("Shared Category Limit: ${catMinutes}m / day")
+          Slider(value = catMinutes.toFloat(), onValueChange = { catMinutes = (it.toInt() / 5) * 5 }, valueRange = 10f..240f)
+          FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(
+              UnlockChallengeType.REFLECTION_REMINDER,
+              UnlockChallengeType.BREATHING,
+              UnlockChallengeType.ADAPTIVE_MATH,
+              UnlockChallengeType.STRICT_MODE,
+            ).forEach { ch ->
+              FilterChip(selected = catChallenge == ch, onClick = { catChallenge = ch }, label = { Text(ch.label) })
+            }
+          }
+        }
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            onSaveCategoryLimit(chosenCategory.name, catMinutes, true, catChallenge)
+            showCategoryLimitDialog = false
+          }
+        ) { Text("Save Cap") }
+      },
+      dismissButton = { TextButton(onClick = { showCategoryLimitDialog = false }) { Text("Cancel") } },
     )
   }
 

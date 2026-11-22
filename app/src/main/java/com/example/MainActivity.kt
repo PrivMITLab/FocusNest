@@ -1,7 +1,11 @@
 package com.example
 
 import android.app.PendingIntent
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.content.res.Configuration
+import android.content.res.Resources
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Build
@@ -39,11 +43,13 @@ import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSiz
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
@@ -58,12 +64,14 @@ import com.example.domain.model.FocusTimeUtils
 import com.example.domain.model.TimerMode
 import com.example.feature.blocker.BlockerScreen
 import com.example.feature.focus.FocusScreen
+import com.example.feature.habits.HabitsScreen
 import com.example.feature.home.HomeDashboardScreen
 import com.example.feature.insights.InsightsScreen
 import com.example.feature.more.MoreScreen
 import com.example.feature.onboarding.OnboardingScreen
 import com.example.ui.FocusNestViewModel
 import com.example.ui.theme.FocusNestTheme
+import java.util.Locale
 
 sealed class MainTab(
   val route: String,
@@ -148,14 +156,18 @@ fun FocusNestAppRoot(
   val permissions by viewModel.permissions.collectAsStateWithLifecycle()
   val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
   val todayUsage by viewModel.todayUsage.collectAsStateWithLifecycle()
+  val yesterdayUsage by viewModel.yesterdayUsage.collectAsStateWithLifecycle()
   val weeklyUsage by viewModel.weeklyUsage.collectAsStateWithLifecycle()
   val monthlyUsage by viewModel.monthlyUsage.collectAsStateWithLifecycle()
   val appLimits by viewModel.appLimits.collectAsStateWithLifecycle()
+  val categoryLimits by viewModel.categoryLimits.collectAsStateWithLifecycle()
   val appGroups by viewModel.appGroups.collectAsStateWithLifecycle()
   val profiles by viewModel.profiles.collectAsStateWithLifecycle()
   val schedules by viewModel.schedules.collectAsStateWithLifecycle()
   val focusSessions by viewModel.focusSessions.collectAsStateWithLifecycle()
   val focusGoal by viewModel.focusGoal.collectAsStateWithLifecycle()
+  val habits by viewModel.habits.collectAsStateWithLifecycle()
+  val habitCompletions by viewModel.habitCompletions.collectAsStateWithLifecycle()
   val unlockHistory by viewModel.unlockHistory.collectAsStateWithLifecycle()
   val websiteRules by viewModel.websiteRules.collectAsStateWithLifecycle()
   val shortFormRules by viewModel.shortFormRules.collectAsStateWithLifecycle()
@@ -166,6 +178,17 @@ fun FocusNestAppRoot(
   val lastScannedNfcUid by viewModel.lastScannedNfcUid.collectAsStateWithLifecycle()
   val statusBanner by viewModel.statusBanner.collectAsStateWithLifecycle()
 
+  val baseContext = LocalContext.current
+  val localizedContext =
+    remember(baseContext, settings.languageCode) {
+      val targetLocale = Locale(settings.languageCode.ifBlank { "en" })
+      val cfg = Configuration(baseContext.resources.configuration).apply { setLocale(targetLocale) }
+      val localizedResources = baseContext.createConfigurationContext(cfg).resources
+      object : ContextWrapper(baseContext) {
+        override fun getResources(): Resources = localizedResources
+      }
+    }
+
   val snackbarHostState = remember { SnackbarHostState() }
   LaunchedEffect(statusBanner) {
     val msg = statusBanner
@@ -175,6 +198,7 @@ fun FocusNestAppRoot(
     }
   }
 
+  CompositionLocalProvider(LocalContext provides localizedContext) {
   FocusNestTheme(
     themeMode = settings.themeMode,
     accentPalette = settings.accentPalette,
@@ -276,6 +300,10 @@ fun FocusNestAppRoot(
                 onNavigateToFocus = { navigateTab(MainTab.Focus.route) },
                 onNavigateToBlocker = { navigateTab(MainTab.Blocker.route) },
                 onNavigateToInsights = { navigateTab(MainTab.Insights.route) },
+                yesterdayUsage = yesterdayUsage,
+                appLimits = appLimits,
+                habits = habits,
+                onNavigateToHabits = { navController.navigate("habits") },
               )
             }
             composable(MainTab.Focus.route) {
@@ -291,6 +319,9 @@ fun FocusNestAppRoot(
                 onResumeTimer = viewModel::resumeFocusSession,
                 onStopTimer = viewModel::stopFocusSession,
                 onSavePomodoroConfig = viewModel::updatePomodoroSettings,
+                onExtendTimer = viewModel::extendFocusSession,
+                onRestartTimer = viewModel::restartFocusSession,
+                onSkipBreak = viewModel::skipFocusBreak,
               )
             }
             composable(MainTab.Blocker.route) {
@@ -324,6 +355,10 @@ fun FocusNestAppRoot(
                 onInstallWebsitePack = viewModel::installWebsitePack,
                 onStartVpn = viewModel::startLocalVpn,
                 onStopVpn = viewModel::stopLocalVpn,
+                categoryLimits = categoryLimits,
+                onSaveCategoryLimit = viewModel::saveCategoryLimit,
+                onDeleteCategoryLimit = viewModel::deleteCategoryLimit,
+                onToggleBlockedNetworkPackage = viewModel::toggleBlockedNetworkPackage,
               )
             }
             composable(MainTab.Insights.route) {
@@ -370,11 +405,31 @@ fun FocusNestAppRoot(
                 onRestoreBackup = viewModel::restoreBackup,
                 onDeleteAllData = viewModel::deleteAllData,
                 onShowMessage = viewModel::postMessage,
+                habitsCount = habits.size,
+                onNavigateToHabits = { navController.navigate("habits") },
+                onClearUsageHistory = viewModel::clearUsageHistory,
+                onClearNotificationHistory = viewModel::clearNotificationHistory,
+                onClearHabits = viewModel::clearHabits,
+              )
+            }
+            composable("habits") {
+              HabitsScreen(
+                habits = habits,
+                completions = habitCompletions,
+                onSaveHabit = viewModel::saveHabit,
+                onSeedStarterHabits = viewModel::seedStarterHabits,
+                onDeleteHabit = viewModel::deleteHabit,
+                onToggleHabitToday = viewModel::toggleHabitToday,
+                onIncrementHabitToday = viewModel::incrementHabitToday,
+                computeHabitStreak = viewModel::computeHabitStreak,
+                computeWeeklyRates = viewModel::computeWeeklyHabitRates,
+                onBack = { navController.popBackStack() },
               )
             }
           }
         }
       }
     }
+  }
   }
 }

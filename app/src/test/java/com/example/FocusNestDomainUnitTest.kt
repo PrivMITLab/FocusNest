@@ -119,4 +119,94 @@ class FocusNestDomainUnitTest {
     assertEquals("1h 25m", FocusTimeUtils.formatDurationMinutes(85))
     assertEquals("02:05", FocusTimeUtils.formatTimerSeconds(125))
   }
+
+  @Test
+  fun unlockChallengeEngine_supports12ChallengesMathLevel3AndThresholdWarnings() {
+    assertEquals(12, UnlockChallengeType.entries.size)
+    assertTrue(UnlockChallengeType.BREATHING in UnlockChallengeType.entries)
+    assertEquals(6, com.example.domain.model.AccentPalette.entries.size)
+
+    val math3 = UnlockChallengeEngine.generateMathChallenge(attemptCountToday = 6)
+    assertEquals(3, math3.difficultyLevel)
+    assertTrue(math3.prompt.contains("÷"))
+
+    assertEquals(
+      com.example.domain.model.LimitThresholdLevel.NONE,
+      UnlockChallengeEngine.evaluateUsageThreshold(usedMinutes = 15, limitMinutes = 30),
+    )
+    assertEquals(
+      com.example.domain.model.LimitThresholdLevel.WARN_80,
+      UnlockChallengeEngine.evaluateUsageThreshold(usedMinutes = 24, limitMinutes = 30),
+    )
+    assertEquals(
+      com.example.domain.model.LimitThresholdLevel.WARN_90,
+      UnlockChallengeEngine.evaluateUsageThreshold(usedMinutes = 27, limitMinutes = 30),
+    )
+    assertEquals(
+      com.example.domain.model.LimitThresholdLevel.WARN_100,
+      UnlockChallengeEngine.evaluateUsageThreshold(usedMinutes = 30, limitMinutes = 30),
+    )
+  }
+
+  @Test
+  fun rulePriorityResolver_supportsGracePeriodAndCategoryDailyLimits() {
+    val inGrace =
+      RulePriorityResolver.resolve(
+        packageName = "com.app",
+        tempUnlockExpiresAtEpochMs = null,
+        nowEpochMs = 100_000L,
+        activeFocusBlocksPackage = false,
+        activeFocusProfileName = null,
+        matchingScheduledProfileName = null,
+        matchingScheduledProfileId = null,
+        matchingScheduledPriority = 0,
+        matchingChallenge = UnlockChallengeType.BREATHING,
+        isStrictMode = false,
+        usedMinutesToday = 32,
+        dailyLimitMinutes = 30,
+        gracePeriodMinutes = 5,
+      )
+    assertFalse(inGrace.isBlocked)
+    assertTrue(inGrace.reason.contains("Grace period"))
+
+    val afterGrace =
+      RulePriorityResolver.resolve(
+        packageName = "com.app",
+        tempUnlockExpiresAtEpochMs = null,
+        nowEpochMs = 100_000L,
+        activeFocusBlocksPackage = false,
+        activeFocusProfileName = null,
+        matchingScheduledProfileName = null,
+        matchingScheduledProfileId = null,
+        matchingScheduledPriority = 0,
+        matchingChallenge = UnlockChallengeType.BREATHING,
+        isStrictMode = false,
+        usedMinutesToday = 35,
+        dailyLimitMinutes = 30,
+        gracePeriodMinutes = 5,
+      )
+    assertTrue(afterGrace.isBlocked)
+    assertEquals(UnlockChallengeType.BREATHING, afterGrace.challengeType)
+
+    val categoryBlocked =
+      RulePriorityResolver.resolve(
+        packageName = "com.app",
+        tempUnlockExpiresAtEpochMs = null,
+        nowEpochMs = 100_000L,
+        activeFocusBlocksPackage = false,
+        activeFocusProfileName = null,
+        matchingScheduledProfileName = null,
+        matchingScheduledProfileId = null,
+        matchingScheduledPriority = 0,
+        matchingChallenge = UnlockChallengeType.REFLECTION_REMINDER,
+        isStrictMode = false,
+        usedMinutesToday = 15,
+        dailyLimitMinutes = 45,
+        categoryUsedMinutesToday = 65,
+        categoryDailyLimitMinutes = 60,
+        categoryName = "SOCIAL",
+      )
+    assertTrue(categoryBlocked.isBlocked)
+    assertEquals(58, categoryBlocked.priorityRank)
+  }
 }

@@ -1,6 +1,7 @@
 package com.example.core.database
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -43,6 +44,11 @@ data class AppLimitEntity(
   val challengeType: String = "REFLECTION_REMINDER",
   val tempUnlockUntilEpochMs: Long? = null,
   val updatedAtEpochMs: Long = System.currentTimeMillis(),
+  val categoryName: String = "",
+  val gracePeriodMinutes: Int = 0,
+  val warned80DateKey: String = "",
+  val warned90DateKey: String = "",
+  val warned100DateKey: String = "",
 )
 
 @Entity(tableName = "app_groups")
@@ -216,6 +222,10 @@ data class QrTokenEntity(
   val tokenFormat: String, // QR_CODE, BARCODE
   val targetProfileId: Long? = null,
   val createdAtEpochMs: Long = System.currentTimeMillis(),
+  val isOneTime: Boolean = false,
+  val expiresAtEpochMs: Long = 0L,
+  val isConsumed: Boolean = false,
+  val signatureHex: String = "",
 )
 
 @Entity(tableName = "short_form_rules")
@@ -229,4 +239,49 @@ data class ShortFormRuleEntity(
   val lastResetDateKey: String = "",
   val pauseSeconds: Int = 8,
   val requireReflection: Boolean = true,
+)
+
+@Entity(tableName = "habits")
+data class HabitEntity(
+  @PrimaryKey(autoGenerate = true) val id: Long = 0,
+  val title: String,
+  val description: String = "",
+  val frequencyType: String = "DAILY", // DAILY, WEEKLY
+  val targetCount: Int = 1,
+  val unitLabel: String = "times",
+  val reminderMinuteOfDay: Int = 9 * 60,
+  val reminderEnabled: Boolean = false,
+  val colorHexTag: String = "#155E50",
+  val createdAtEpochMs: Long = System.currentTimeMillis(),
+  val isArchived: Boolean = false,
+)
+
+@Entity(
+  tableName = "habit_completions",
+  foreignKeys =
+    [
+      ForeignKey(
+        entity = HabitEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["habitId"],
+        onDelete = ForeignKey.CASCADE,
+      )
+    ],
+  indices = [Index(value = ["habitId"]), Index(value = ["dateKey"])],
+)
+data class HabitCompletionEntity(
+  @PrimaryKey(autoGenerate = true) val id: Long = 0,
+  val habitId: Long,
+  val dateKey: String,
+  val completedCount: Int = 1,
+  val completedAtEpochMs: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "category_limits")
+data class CategoryLimitEntity(
+  @PrimaryKey val categoryName: String,
+  val dailyLimitMinutes: Int,
+  val isEnabled: Boolean = true,
+  val challengeType: String = "REFLECTION_REMINDER",
+  val updatedAtEpochMs: Long = System.currentTimeMillis(),
 )

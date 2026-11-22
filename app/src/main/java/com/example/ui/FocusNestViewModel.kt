@@ -13,9 +13,12 @@ import com.example.core.database.AppLimitEntity
 import com.example.core.database.AppUsageEntity
 import com.example.core.database.BlockProfileEntity
 import com.example.core.database.BlockingScheduleEntity
+import com.example.core.database.CategoryLimitEntity
 import com.example.core.database.DailyAnalyticsEntity
 import com.example.core.database.FocusGoalEntity
 import com.example.core.database.FocusSessionEntity
+import com.example.core.database.HabitCompletionEntity
+import com.example.core.database.HabitEntity
 import com.example.core.database.InstalledAppEntity
 import com.example.core.database.NfcTagEntity
 import com.example.core.database.NotificationRecordEntity
@@ -54,6 +57,7 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
   private val usageRepo = container.usageStatsRepository
   private val blockerRepo = container.blockerRepository
   private val focusRepo = container.focusRepository
+  private val habitRepo = container.habitRepository
   private val insightsRepo = container.insightsRepository
 
   val settings: StateFlow<FocusNestSettings> =
@@ -84,6 +88,11 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
       .observeUsageForDate(FocusTimeUtils.todayKey())
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+  val yesterdayUsage: StateFlow<List<AppUsageEntity>> =
+    usageRepo
+      .observeUsageForDate(FocusTimeUtils.dateKeyDaysAgo(1))
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
   val weeklyUsage: StateFlow<List<AppUsageEntity>> =
     usageRepo
       .observeUsageInRange(FocusTimeUtils.dateKeyDaysAgo(6), FocusTimeUtils.todayKey())
@@ -96,6 +105,9 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
 
   val appLimits: StateFlow<List<AppLimitEntity>> =
     blockerRepo.appLimits.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  val categoryLimits: StateFlow<List<CategoryLimitEntity>> =
+    blockerRepo.categoryLimits.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val appGroups: StateFlow<List<AppGroupEntity>> =
     blockerRepo.appGroups.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -113,6 +125,12 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
     focusRepo.goal
       .map { it ?: FocusGoalEntity() }
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FocusGoalEntity())
+
+  val habits: StateFlow<List<HabitEntity>> =
+    habitRepo.activeHabits.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  val habitCompletions: StateFlow<List<HabitCompletionEntity>> =
+    habitRepo.allCompletions.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val unlockRules: StateFlow<List<UnlockRuleEntity>> =
     blockerRepo.unlockRules.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -263,6 +281,21 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
     FocusTimerService.sendAction(app, FocusTimerService.ACTION_STOP, completed = markCompleted)
   }
 
+  fun extendFocusSession(deltaMinutes: Int = 5) {
+    FocusTimerService.extendTimer(app, deltaMinutes)
+    _statusBanner.value = "Added +${deltaMinutes}m to active session."
+  }
+
+  fun restartFocusSession() {
+    FocusTimerService.sendAction(app, FocusTimerService.ACTION_RESTART)
+    _statusBanner.value = "Session timer restarted."
+  }
+
+  fun skipFocusBreak() {
+    FocusTimerService.sendAction(app, FocusTimerService.ACTION_SKIP_BREAK)
+    _statusBanner.value = "Break skipped — next focus cycle started."
+  }
+
   fun updatePomodoroSettings(
     focusMin: Int,
     shortBreakMin: Int,
@@ -319,6 +352,8 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
     weeklyMinutes: Int,
     manualBlock: Boolean,
     challengeType: UnlockChallengeType,
+    gracePeriodMinutes: Int = 0,
+    categoryName: String = "",
   ) {
     viewModelScope.launch {
       if (settings.value.invincibleModeEnabled && !manualBlock) {
@@ -333,9 +368,40 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
           weeklyLimitMinutes = weeklyMinutes.coerceAtLeast(0),
           isBlockedManually = manualBlock,
           challengeType = challengeType.name,
+          categoryName = categoryName,
+          gracePeriodMinutes = gracePeriodMinutes.coerceIn(0, 30),
         )
       )
       _statusBanner.value = "Saved rule for $appName."
+    }
+  }
+
+  fun saveCategoryLimit(
+    categoryName: String,
+    dailyLimitMinutes: Int,
+    isEnabled: Boolean,
+    challengeType: UnlockChallengeType,
+  ) {
+    viewModelScope.launch {
+      blockerRepo.saveCategoryLimit(
+        CategoryLimitEntity(
+          categoryName = categoryName,
+          dailyLimitMinutes = dailyLimitMinutes.coerceAtLeast(5),
+          isEnabled = isEnabled,
+          challengeType = challengeType.name,
+        )
+      )
+      _statusBanner.value = "Category limit saved for $categoryName."
+    }
+  }
+
+  fun deleteCategoryLimit(categoryName: String) {
+    viewModelScope.launch {
+      if (settings.value.invincibleModeEnabled) {
+        _statusBanner.value = "Invincible Mode locks rule removals until cooldown finishes."
+        return@launch
+      }
+      blockerRepo.deleteCategoryLimit(categoryName)
     }
   }
 
@@ -456,6 +522,92 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
     _permissions.value = PermissionManager.getSnapshot(app)
   }
 
+  fun toggleBlockedNetworkPackage(pkg: String, blocked: Boolean) {
+    viewModelScope.launch {
+      prefs.updateSettings { cur ->
+        val next =
+          if (blocked) cur.blockedNetworkPackages + pkg
+          else cur.blockedNetworkPackages - pkg
+        cur.copy(blockedNetworkPackages = next)
+      }
+    }
+  }
+
+  // Habits & Offline Routines
+  fun saveHabit(
+    title: String,
+    description: String,
+    frequencyType: String,
+    targetCount: Int,
+    unitLabel: String,
+    existingId: Long = 0L,
+  ) {
+    viewModelScope.launch {
+      if (title.isBlank()) return@launch
+      habitRepo.saveHabit(
+        HabitEntity(
+          id = existingId,
+          title = title.trim(),
+          description = description.trim(),
+          frequencyType = frequencyType,
+          targetCount = targetCount.coerceIn(1, 50),
+          unitLabel = unitLabel.trim().ifEmpty { "times" },
+        )
+      )
+      _statusBanner.value = "Habit \"${title.trim()}\" saved."
+    }
+  }
+
+  fun seedStarterHabits() {
+    viewModelScope.launch {
+      if (habits.value.isNotEmpty()) return@launch
+      listOf(
+        HabitEntity(
+          title = "Morning Screen-Free Hour",
+          description = "Keep phone away for the first 60 minutes after waking",
+          frequencyType = "DAILY",
+          targetCount = 1,
+          unitLabel = "day",
+        ),
+        HabitEntity(
+          title = "Focused Reading / Study",
+          description = "Read or study offline without interruptions",
+          frequencyType = "DAILY",
+          targetCount = 20,
+          unitLabel = "pages",
+        ),
+        HabitEntity(
+          title = "Device Dock Before Sleep",
+          description = "Place phone outside reach 30m before bedtime",
+          frequencyType = "DAILY",
+          targetCount = 1,
+          unitLabel = "night",
+        ),
+      ).forEach { habitRepo.saveHabit(it) }
+      _statusBanner.value = "Added starter offline habits."
+    }
+  }
+
+  fun deleteHabit(habit: HabitEntity) {
+    viewModelScope.launch { habitRepo.deleteHabit(habit) }
+  }
+
+  fun toggleHabitToday(habit: HabitEntity) {
+    viewModelScope.launch { habitRepo.toggleHabitForDate(habit, FocusTimeUtils.todayKey()) }
+  }
+
+  fun incrementHabitToday(habit: HabitEntity, delta: Int) {
+    viewModelScope.launch { habitRepo.recordHabitProgress(habit, FocusTimeUtils.todayKey(), delta) }
+  }
+
+  fun computeHabitStreak(habit: HabitEntity, completions: List<HabitCompletionEntity>): Int =
+    habitRepo.computeHabitStreakDays(habit, completions)
+
+  fun computeWeeklyHabitRates(
+    habitList: List<HabitEntity>,
+    completions: List<HabitCompletionEntity>,
+  ): List<Pair<String, Float>> = habitRepo.weeklyCompletionRates(habitList, completions)
+
   // NFC / QR / Barcode Tokens
   fun onNfcTagScanned(uidHex: String) {
     _lastScannedNfcUid.value = uidHex
@@ -510,15 +662,27 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
     viewModelScope.launch { blockerRepo.deleteNfcTag(tag) }
   }
 
-  fun saveQrOrBarcodeToken(value: String, label: String, format: String, profileId: Long?) {
+  fun saveQrOrBarcodeToken(
+    value: String,
+    label: String,
+    format: String,
+    profileId: Long?,
+    isOneTime: Boolean = false,
+    expiresInHours: Int = 0,
+  ) {
     viewModelScope.launch {
       if (value.isBlank()) return@launch
+      val now = System.currentTimeMillis()
+      val expiresAt = if (expiresInHours > 0) now + expiresInHours * 3_600_000L else 0L
       blockerRepo.registerQrOrBarcodeToken(
         QrTokenEntity(
           tokenValue = value.trim(),
           label = label.trim().ifEmpty { "FocusNest Token" },
           tokenFormat = format,
           targetProfileId = profileId,
+          createdAtEpochMs = now,
+          isOneTime = isOneTime,
+          expiresAtEpochMs = expiresAt,
         )
       )
       _statusBanner.value = "$format token \"$label\" saved."
@@ -660,6 +824,27 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
 
   suspend fun buildPrintableHtml(startKey: String, endKey: String): String =
     insightsRepo.buildPrintableReportHtml(startKey, endKey)
+
+  fun clearUsageHistory() {
+    viewModelScope.launch {
+      insightsRepo.clearUsageHistory()
+      _statusBanner.value = "Local usage history cleared."
+    }
+  }
+
+  fun clearNotificationHistory() {
+    viewModelScope.launch {
+      insightsRepo.clearNotificationHistory()
+      _statusBanner.value = "Notification log cleared."
+    }
+  }
+
+  fun clearHabits() {
+    viewModelScope.launch {
+      insightsRepo.clearHabits()
+      _statusBanner.value = "All habit records cleared."
+    }
+  }
 
   fun deleteAllData() {
     viewModelScope.launch {

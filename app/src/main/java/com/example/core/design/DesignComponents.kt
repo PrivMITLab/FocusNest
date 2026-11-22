@@ -37,6 +37,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -420,6 +421,50 @@ fun MetricTile(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
+    }
+  }
+}
+
+@Composable
+fun InstalledAppIcon(
+  packageName: String,
+  appName: String,
+  size: Dp = 36.dp,
+  modifier: Modifier = Modifier,
+) {
+  val context = androidx.compose.ui.platform.LocalContext.current
+  val iconBitmap =
+    androidx.compose.runtime.remember(packageName) {
+      runCatching {
+        val drawable = context.packageManager.getApplicationIcon(packageName)
+        val px = 96
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        bmp
+      }.getOrNull()
+    }
+
+  if (iconBitmap != null) {
+    androidx.compose.foundation.Image(
+      bitmap = iconBitmap.asImageBitmap(),
+      contentDescription = "$appName icon",
+      modifier = modifier.size(size).clip(RoundedCornerShape(10.dp)),
+    )
+  } else {
+    Surface(
+      shape = RoundedCornerShape(10.dp),
+      color = MaterialTheme.colorScheme.primaryContainer,
+      modifier = modifier.size(size),
+    ) {
+      Box(contentAlignment = Alignment.Center) {
+        Text(
+          text = appName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "A",
+          style = MaterialTheme.typography.titleMedium,
+          color = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+      }
     }
   }
 }

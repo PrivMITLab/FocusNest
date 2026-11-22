@@ -6,11 +6,14 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Process
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.permissions.PermissionManager
 import com.example.service.BootCompletedReceiver
@@ -96,5 +99,27 @@ class ExampleRobolectricTest {
     composeTestRule.onNodeWithTag("nav_more").performClick()
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithText("More & Sanctuary Controls").assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag("more_tile_habits").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("habits_seed_btn").performScrollTo().performClick()
+    composeTestRule.waitUntil(timeoutMillis = 5_000) {
+      composeTestRule.onAllNodesWithText("7-Day Habit Completion Rate").fetchSemanticsNodes().isNotEmpty()
+    }
+    composeTestRule.onNodeWithTag("habits_list").performScrollToNode(hasText("Morning Screen-Free Hour"))
+    composeTestRule.onNodeWithText("Morning Screen-Free Hour").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("habits_list").performScrollToNode(hasText("0 / 3"))
+    composeTestRule.onNodeWithText("0 / 3").assertIsDisplayed()
+  }
+
+  @Test
+  fun hindiLocalizationResources_resolveAccurately() {
+    val base = ApplicationProvider.getApplicationContext<Context>()
+    val cfg = android.content.res.Configuration(base.resources.configuration).apply {
+      setLocale(java.util.Locale.forLanguageTag("hi"))
+    }
+    val hiCtx = base.createConfigurationContext(cfg)
+    assertEquals("होम", hiCtx.getString(R.string.nav_home))
+    assertEquals("दैनिक और साप्ताहिक आदतें", hiCtx.getString(R.string.habits_title))
   }
 }

@@ -47,6 +47,7 @@ class FocusNestVpnService : VpnService() {
   private fun startVpn() {
     if (vpnInterface != null) return
     val app = applicationContext as FocusNestApplication
+    val settings = kotlinx.coroutines.runBlocking { app.container.preferences.settingsFlow.first() }
 
     val builder =
       Builder()
@@ -55,7 +56,15 @@ class FocusNestVpnService : VpnService() {
         .addDnsServer("10.88.0.1")
         .addRoute("10.88.0.1", 32)
         .setMtu(1500)
-    runCatching { builder.addDisallowedApplication(packageName) }
+    if (settings.blockedNetworkPackages.isNotEmpty()) {
+      settings.blockedNetworkPackages.forEach { targetPkg ->
+        if (targetPkg != packageName) {
+          runCatching { builder.addAllowedApplication(targetPkg) }
+        }
+      }
+    } else {
+      runCatching { builder.addDisallowedApplication(packageName) }
+    }
 
     vpnInterface = runCatching { builder.establish() }.getOrNull()
     if (vpnInterface == null) {

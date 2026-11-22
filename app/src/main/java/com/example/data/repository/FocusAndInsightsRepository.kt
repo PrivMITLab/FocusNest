@@ -8,12 +8,17 @@ import com.example.core.database.AppUsageDao
 import com.example.core.database.BlockProfileDao
 import com.example.core.database.BlockProfileEntity
 import com.example.core.database.BlockingScheduleDao
+import com.example.core.database.CategoryLimitDao
+import com.example.core.database.CategoryLimitEntity
 import com.example.core.database.DailyAnalyticsDao
 import com.example.core.database.DailyAnalyticsEntity
 import com.example.core.database.FocusGoalDao
 import com.example.core.database.FocusGoalEntity
 import com.example.core.database.FocusSessionDao
 import com.example.core.database.FocusSessionEntity
+import com.example.core.database.HabitCompletionEntity
+import com.example.core.database.HabitDao
+import com.example.core.database.HabitEntity
 import com.example.core.database.NotificationRecordDao
 import com.example.core.database.NotificationRecordEntity
 import com.example.core.database.ReminderDao
@@ -116,6 +121,8 @@ class InsightsAndBackupRepository(
   private val reminderDao: ReminderDao,
   private val notificationRecordDao: NotificationRecordDao,
   private val preferences: FocusNestPreferences,
+  private val habitDao: HabitDao? = null,
+  private val categoryLimitDao: CategoryLimitDao? = null,
 ) {
   val recentDailyAnalytics: Flow<List<DailyAnalyticsEntity>> = dailyAnalyticsDao.observeRecent()
   val reminders: Flow<List<ReminderEntity>> = reminderDao.observeAll()
@@ -265,6 +272,49 @@ class InsightsAndBackupRepository(
       )
     }
     root.put("dailyAnalytics", analyticsArray)
+
+    val catLimits = categoryLimitDao?.getAll().orEmpty()
+    val catArray = JSONArray()
+    catLimits.forEach { c ->
+      catArray.put(
+        JSONObject()
+          .put("categoryName", c.categoryName)
+          .put("dailyLimitMinutes", c.dailyLimitMinutes)
+          .put("isEnabled", c.isEnabled)
+          .put("challengeType", c.challengeType)
+      )
+    }
+    root.put("categoryLimits", catArray)
+
+    val habits = habitDao?.getAllHabits().orEmpty()
+    val habitsArray = JSONArray()
+    habits.forEach { h ->
+      habitsArray.put(
+        JSONObject()
+          .put("id", h.id)
+          .put("title", h.title)
+          .put("description", h.description)
+          .put("frequencyType", h.frequencyType)
+          .put("targetCount", h.targetCount)
+          .put("unitLabel", h.unitLabel)
+          .put("colorHexTag", h.colorHexTag)
+          .put("isArchived", h.isArchived)
+      )
+    }
+    root.put("habits", habitsArray)
+
+    val completions = habitDao?.getAllCompletions().orEmpty()
+    val compArray = JSONArray()
+    completions.forEach { c ->
+      compArray.put(
+        JSONObject()
+          .put("habitId", c.habitId)
+          .put("dateKey", c.dateKey)
+          .put("completedCount", c.completedCount)
+          .put("completedAtEpochMs", c.completedAtEpochMs)
+      )
+    }
+    root.put("habitCompletions", compArray)
     return root.toString(2)
   }
 
@@ -333,9 +383,67 @@ class InsightsAndBackupRepository(
             weeklyLimitMinutes = o.optInt("weeklyLimitMinutes", 0),
             isBlockedManually = o.optBoolean("isBlockedManually", false),
             challengeType = o.optString("challengeType", "REFLECTION_REMINDER"),
+            categoryName = o.optString("categoryName", ""),
+            gracePeriodMinutes = o.optInt("gracePeriodMinutes", 0),
           )
         )
         restoredItems++
+      }
+    }
+
+    root.optJSONArray("categoryLimits")?.let { arr ->
+      for (i in 0 until arr.length()) {
+        val o = arr.getJSONObject(i)
+        categoryLimitDao?.upsert(
+          CategoryLimitEntity(
+            categoryName = o.getString("categoryName"),
+            dailyLimitMinutes = o.optInt("dailyLimitMinutes", 60),
+            isEnabled = o.optBoolean("isEnabled", true),
+            challengeType = o.optString("challengeType", "REFLECTION_REMINDER"),
+          )
+        )
+        restoredItems++
+      }
+    }
+
+    val habitIdMap = mutableMapOf<Long, Long>()
+    root.optJSONArray("habits")?.let { arr ->
+      for (i in 0 until arr.length()) {
+        val o = arr.getJSONObject(i)
+        val oldId = o.optLong("id", 0L)
+        val newId =
+          habitDao?.upsertHabit(
+            HabitEntity(
+              title = o.getString("title"),
+              description = o.optString("description", ""),
+              frequencyType = o.optString("frequencyType", "DAILY"),
+              targetCount = o.optInt("targetCount", 1),
+              unitLabel = o.optString("unitLabel", "times"),
+              colorHexTag = o.optString("colorHexTag", "#155E50"),
+              isArchived = o.optBoolean("isArchived", false),
+            )
+          ) ?: 0L
+        if (oldId > 0L && newId > 0L) habitIdMap[oldId] = newId
+        restoredItems++
+      }
+    }
+
+    root.optJSONArray("habitCompletions")?.let { arr ->
+      for (i in 0 until arr.length()) {
+        val o = arr.getJSONObject(i)
+        val oldHabitId = o.optLong("habitId", 0L)
+        val mappedId = habitIdMap[oldHabitId] ?: oldHabitId
+        if (mappedId > 0L) {
+          habitDao?.upsertCompletion(
+            HabitCompletionEntity(
+              habitId = mappedId,
+              dateKey = o.getString("dateKey"),
+              completedCount = o.optInt("completedCount", 1),
+              completedAtEpochMs = o.optLong("completedAtEpochMs", System.currentTimeMillis()),
+            )
+          )
+          restoredItems++
+        }
       }
     }
 
@@ -411,9 +519,24 @@ class InsightsAndBackupRepository(
   private fun escapeHtml(input: String): String =
     input.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+  suspend fun clearUsageHistory() {
+    appUsageDao.deleteAll()
+    dailyAnalyticsDao.deleteAll()
+  }
+
+  suspend fun clearNotificationHistory() {
+    notificationRecordDao.deleteAll()
+  }
+
+  suspend fun clearHabits() {
+    habitDao?.deleteAllCompletions()
+    habitDao?.deleteAllHabits()
+  }
+
   suspend fun deleteAllUserData() {
     appUsageDao.deleteAll()
     appLimitDao.deleteAll()
+    categoryLimitDao?.deleteAll()
     appGroupDao.deleteAll()
     blockProfileDao.deleteAll()
     blockingScheduleDao.deleteAll()
@@ -422,6 +545,8 @@ class InsightsAndBackupRepository(
     websiteRuleDao.deleteAll()
     notificationRecordDao.deleteAll()
     dailyAnalyticsDao.deleteAll()
+    habitDao?.deleteAllCompletions()
+    habitDao?.deleteAllHabits()
     preferences.clearAll()
   }
 }

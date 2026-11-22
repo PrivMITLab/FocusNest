@@ -7,16 +7,21 @@ import com.example.core.database.AppGroupEntity
 import com.example.core.database.AppLimitEntity
 import com.example.core.database.AppUsageEntity
 import com.example.core.database.BlockProfileEntity
+import com.example.core.database.CategoryLimitEntity
 import com.example.core.database.FocusNestDatabase
 import com.example.core.database.FocusSessionEntity
+import com.example.core.database.HabitEntity
 import com.example.core.database.InstalledAppEntity
+import com.example.core.database.QrTokenEntity
 import com.example.core.database.WebsiteRuleEntity
 import com.example.core.datastore.FocusNestPreferences
 import com.example.core.datastore.PersistedTimerState
 import com.example.data.repository.BlockerRepository
 import com.example.data.repository.FocusRepository
+import com.example.data.repository.HabitRepository
 import com.example.data.repository.InsightsAndBackupRepository
 import com.example.domain.model.FocusTimeUtils
+import com.example.domain.model.LimitThresholdLevel
 import com.example.domain.model.SessionType
 import com.example.domain.model.TimerMode
 import com.example.domain.model.TimerPhase
@@ -26,6 +31,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -42,6 +49,7 @@ class FocusNestDatabaseAndRepoTest {
   private lateinit var prefs: FocusNestPreferences
   private lateinit var blockerRepo: BlockerRepository
   private lateinit var focusRepo: FocusRepository
+  private lateinit var habitRepo: HabitRepository
   private lateinit var insightsRepo: InsightsAndBackupRepository
 
   @Before
@@ -65,8 +73,10 @@ class FocusNestDatabaseAndRepoTest {
         dailyAnalyticsDao = db.dailyAnalyticsDao(),
         installedAppDao = db.installedAppDao(),
         preferences = prefs,
+        categoryLimitDao = db.categoryLimitDao(),
       )
     focusRepo = FocusRepository(db.focusSessionDao(), db.focusGoalDao(), db.dailyAnalyticsDao())
+    habitRepo = HabitRepository(db.habitDao())
     insightsRepo =
       InsightsAndBackupRepository(
         appUsageDao = db.appUsageDao(),
@@ -82,6 +92,8 @@ class FocusNestDatabaseAndRepoTest {
         reminderDao = db.reminderDao(),
         notificationRecordDao = db.notificationRecordDao(),
         preferences = prefs,
+        habitDao = db.habitDao(),
+        categoryLimitDao = db.categoryLimitDao(),
       )
   }
 
@@ -196,5 +208,130 @@ class FocusNestDatabaseAndRepoTest {
     assertEquals(SessionType.CODING, loaded.sessionType)
     assertEquals("Kernel module", loaded.sessionNote)
     assertEquals(1_900_000_000_000L, loaded.targetEndEpochMs)
+  }
+
+  @Test
+  fun habitRepository_tracksStreaksAndWeeklyRatesLocally() = runTest {
+    val id =
+      habitRepo.saveHabit(
+        HabitEntity(title = "Read 20 pages", frequencyType = "DAILY", targetCount = 20, unitLabel = "pages")
+      )
+    val habit = db.habitDao().getAllHabits().first { it.id == id }
+    val today = FocusTimeUtils.todayKey()
+    val yesterday = FocusTimeUtils.dateKeyDaysAgo(1)
+
+    habitRepo.recordHabitProgress(habit, dateKey = today, delta = 20)
+    habitRepo.recordHabitProgress(habit, dateKey = yesterday, delta = 20)
+
+    val completions = db.habitDao().getAllCompletions()
+    assertEquals(2, habitRepo.computeHabitStreakDays(habit, completions))
+    val rates = habitRepo.weeklyCompletionRates(listOf(habit), completions)
+    assertEquals(7, rates.size)
+    assertEquals(100f, rates.last().second, 0.01f)
+
+    insightsRepo.clearHabits()
+    assertTrue(db.habitDao().getAllHabits().isEmpty())
+  }
+
+  @Test
+  fun qrTokenSecurity_enforcesOneTimeConsumptionExpiryAndSignature() = runTest {
+    val now = 1_750_000_000_000L
+    blockerRepo.registerQrOrBarcodeToken(
+      QrTokenEntity(
+        tokenValue = "FOCUSNEST:ONE1",
+        label = "OneTime",
+        tokenFormat = "QR_CODE",
+        createdAtEpochMs = now,
+        isOneTime = true,
+      )
+    )
+    val (firstTok, firstErr) = blockerRepo.verifyAndConsumeQrOrBarcodeToken("FOCUSNEST:ONE1", now + 1000L)
+    assertNotNull(firstTok)
+    assertNull(firstErr)
+
+    val (replayTok, replayErr) = blockerRepo.verifyAndConsumeQrOrBarcodeToken("FOCUSNEST:ONE1", now + 2000L)
+    assertNull(replayTok)
+    assertTrue(replayErr?.contains("already been used") == true)
+
+    blockerRepo.registerQrOrBarcodeToken(
+      QrTokenEntity(
+        tokenValue = "FOCUSNEST:EXP1",
+        label = "Expiring",
+        tokenFormat = "QR_CODE",
+        createdAtEpochMs = now,
+        expiresAtEpochMs = now + 10_000L,
+      )
+    )
+    val (expiredTok, expiredErr) = blockerRepo.verifyAndConsumeQrOrBarcodeToken("FOCUSNEST:EXP1", now + 20_000L)
+    assertNull(expiredTok)
+    assertTrue(expiredErr?.contains("expired") == true)
+  }
+
+  @Test
+  fun categoryLimitAndWarningThresholds_evaluateAccurately() = runTest {
+    val pkg = "com.video.tube"
+    val today = FocusTimeUtils.todayKey()
+    db.installedAppDao().upsertAll(listOf(InstalledAppEntity(pkg, "Tube", "VIDEO")))
+    db.appUsageDao().upsertAll(listOf(AppUsageEntity(today, pkg, "Tube", "VIDEO", foregroundTimeMs = 26 * 60_000L)))
+    blockerRepo.saveAppLimit(AppLimitEntity(packageName = pkg, appName = "Tube", dailyLimitMinutes = 30))
+
+    val firstWarnings = blockerRepo.evaluateAndMarkAppLimitWarnings()
+    assertEquals(1, firstWarnings.size)
+    assertEquals(LimitThresholdLevel.WARN_80, firstWarnings.first().second)
+
+    // Repeat evaluation on same day must not re-fire WARN_80
+    val duplicateCheck = blockerRepo.evaluateAndMarkAppLimitWarnings()
+    assertTrue(duplicateCheck.isEmpty())
+
+    // Category cap triggers block
+    blockerRepo.saveCategoryLimit(CategoryLimitEntity(categoryName = "VIDEO", dailyLimitMinutes = 20))
+    val decision = blockerRepo.evaluatePackageDecision(pkg)
+    assertTrue(decision.isBlocked)
+  }
+
+  @Test
+  fun roomMigration1To2_preservesExistingV1TablesAndAddsV2Schema() {
+    val dbName = "migration_v1_v2_test.db"
+    context.deleteDatabase(dbName)
+    val config =
+      androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+        .name(dbName)
+        .callback(
+          object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(1) {
+            override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+              db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `app_limits` (`packageName` TEXT NOT NULL, `appName` TEXT NOT NULL, `dailyLimitMinutes` INTEGER NOT NULL, `weeklyLimitMinutes` INTEGER NOT NULL, `isBlockedManually` INTEGER NOT NULL, `cooldownSeconds` INTEGER NOT NULL, `challengeType` TEXT NOT NULL, `tempUnlockUntilEpochMs` INTEGER, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`packageName`))"
+              )
+              db.execSQL(
+                "INSERT INTO `app_limits` VALUES ('com.v1.app', 'Legacy App', 30, 0, 0, 15, 'REFLECTION_REMINDER', NULL, 1000)"
+              )
+              db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `qr_tokens` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `tokenValue` TEXT NOT NULL, `label` TEXT NOT NULL, `tokenFormat` TEXT NOT NULL, `targetProfileId` INTEGER, `createdAtEpochMs` INTEGER NOT NULL)"
+              )
+            }
+
+            override fun onUpgrade(db: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+          }
+        )
+        .build()
+
+    val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+    val sqliteDb = helper.writableDatabase
+    FocusNestDatabase.MIGRATION_1_2.migrate(sqliteDb)
+
+    sqliteDb.query("SELECT appName, categoryName, gracePeriodMinutes FROM app_limits WHERE packageName='com.v1.app'").use { c ->
+      assertTrue(c.moveToFirst())
+      assertEquals("Legacy App", c.getString(0))
+      assertEquals("", c.getString(1))
+      assertEquals(0, c.getInt(2))
+    }
+    sqliteDb.query("SELECT name FROM sqlite_master WHERE type='table' AND name='habits'").use { c ->
+      assertTrue(c.moveToFirst())
+    }
+    sqliteDb.query("SELECT name FROM sqlite_master WHERE type='table' AND name='category_limits'").use { c ->
+      assertTrue(c.moveToFirst())
+    }
+    helper.close()
+    context.deleteDatabase(dbName)
   }
 }
