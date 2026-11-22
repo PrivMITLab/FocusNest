@@ -531,6 +531,34 @@ class BlockerRepository(
     )
   }
 
+  suspend fun recordMindfulLaunchProceed(
+    packageName: String,
+    appName: String,
+    pauseSeconds: Int,
+    nowEpochMs: Long = System.currentTimeMillis(),
+  ) {
+    val today = FocusTimeUtils.todayKey(nowEpochMs)
+    unlockDao.insertHistory(
+      UnlockHistoryEntity(
+        dateKey = today,
+        packageName = packageName,
+        appName = appName,
+        challengeType = UnlockChallengeType.BREATHING.name,
+        granted = true,
+        grantedMinutes = 5,
+        intentionText = "Mindful ${pauseSeconds}s launch pause",
+        timestampEpochMs = nowEpochMs,
+      )
+    )
+    val analytics = dailyAnalyticsDao.getByDate(today) ?: DailyAnalyticsEntity(today)
+    dailyAnalyticsDao.upsert(
+      analytics.copy(
+        unlockCount = analytics.unlockCount + 1,
+        updatedAtEpochMs = nowEpochMs,
+      )
+    )
+  }
+
   private fun isMinuteInWindow(current: Int, start: Int, end: Int): Boolean {
     return if (start <= end) {
       current in start..end

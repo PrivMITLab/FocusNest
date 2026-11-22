@@ -236,6 +236,13 @@ class UsageStatsRepository(
         ApplicationInfo.CATEGORY_VIDEO -> return AppCategory.VIDEO
         ApplicationInfo.CATEGORY_GAME -> return AppCategory.GAMING
         ApplicationInfo.CATEGORY_PRODUCTIVITY -> return AppCategory.PRODUCTIVITY
+        ApplicationInfo.CATEGORY_AUDIO,
+        ApplicationInfo.CATEGORY_IMAGE,
+        ApplicationInfo.CATEGORY_MAPS,
+        ApplicationInfo.CATEGORY_NEWS,
+        ApplicationInfo.CATEGORY_ACCESSIBILITY,
+        ApplicationInfo.CATEGORY_UNDEFINED -> Unit
+        else -> Unit
       }
     }
     val lower = pkg.lowercase()

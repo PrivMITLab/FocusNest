@@ -2,17 +2,13 @@ package com.example.feature.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
@@ -60,6 +56,7 @@ import com.example.core.database.FocusSessionEntity
 import com.example.core.database.HabitEntity
 import com.example.core.datastore.FocusNestSettings
 import com.example.core.datastore.PersistedTimerState
+import com.example.core.design.AdaptiveTwoPane
 import com.example.core.design.AnimatedGoalRing
 import com.example.core.design.BarChartCard
 import com.example.core.design.FocusNestEmptyState
@@ -146,26 +143,24 @@ fun HomeDashboardScreen(
       }
     }
 
-  LazyColumn(
-    modifier = Modifier.fillMaxSize(),
-    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-    verticalArrangement = Arrangement.spacedBy(14.dp),
-  ) {
-    item {
+  AdaptiveTwoPane(
+    headerContent = {
       Row(
-        modifier = Modifier.fillMaxWidth().widthIn(max = 720.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
           FocusNestLogoMark(size = 38.dp)
           Spacer(modifier = Modifier.width(10.dp))
           Column {
             Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
             Text(
-              "$greetingText • $dateFormatted",
+              "$greetingText • $dateFormatted • ${stringResource(R.string.app_tagline)}",
               style = MaterialTheme.typography.bodyMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
             )
           }
         }
@@ -176,7 +171,8 @@ fun HomeDashboardScreen(
           Icon(Icons.Default.Refresh, contentDescription = "Sync usage stats")
         }
       }
-    }
+    },
+    primaryPane = {
 
     if (!permissions.usageStatsGranted) {
       item {
@@ -361,6 +357,8 @@ fun HomeDashboardScreen(
         }
       }
     }
+    },
+    secondaryPane = {
 
     // 4 Metrics Grid
     item {
@@ -513,7 +511,8 @@ fun HomeDashboardScreen(
         }
       }
     }
-  }
+    },
+  )
 
   if (showIntentionDialog) {
     AlertDialog(

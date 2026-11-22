@@ -163,17 +163,18 @@ abstract class FocusNestDatabase : RoomDatabase() {
       }
 
     @Volatile private var INSTANCE: FocusNestDatabase? = null
-    @Volatile private var instanceApp: Context? = null
+    @Volatile private var instanceDbPath: String? = null
 
     fun getInstance(context: Context): FocusNestDatabase {
       val appContext = context.applicationContext ?: context
+      val dbPath = appContext.getDatabasePath(DATABASE_NAME).absolutePath
       val existing = INSTANCE
-      if (existing != null && existing.isOpen && instanceApp === appContext) {
+      if (existing != null && existing.isOpen && instanceDbPath == dbPath) {
         return existing
       }
       return synchronized(this) {
         val current = INSTANCE
-        if (current != null && current.isOpen && instanceApp === appContext) {
+        if (current != null && current.isOpen && instanceDbPath == dbPath) {
           current
         } else {
           runCatching { current?.close() }
@@ -186,7 +187,7 @@ abstract class FocusNestDatabase : RoomDatabase() {
             .build()
             .also {
               INSTANCE = it
-              instanceApp = appContext
+              instanceDbPath = dbPath
             }
         }
       }

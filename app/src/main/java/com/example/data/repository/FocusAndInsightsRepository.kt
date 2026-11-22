@@ -487,31 +487,88 @@ class InsightsAndBackupRepository(
   suspend fun buildPrintableReportHtml(startDateKey: String, endDateKey: String): String {
     val usage = appUsageDao.getUsageInRange(startDateKey, endDateKey)
     val sessions = focusSessionDao.getAll().filter { it.dateKey in startDateKey..endDateKey }
-    val totalScreenMin = usage.sumOf { it.foregroundTimeMs } / 60_000L
-    val totalFocusMin = sessions.sumOf { it.elapsedSeconds } / 60L
-    val rows =
+    val goal = focusGoalDao.getGoal() ?: FocusGoalEntity()
+    val analytics = dailyAnalyticsDao.getAll().filter { it.dateKey in startDateKey..endDateKey }
+    val activeHabits = habitDao?.getAllHabits()?.filter { !it.isArchived }.orEmpty()
+    val habitLogs =
+      habitDao?.getAllCompletions()?.filter { it.dateKey in startDateKey..endDateKey && it.completedCount > 0 }.orEmpty()
+
+    val totalScreenMin = (usage.sumOf { it.foregroundTimeMs } / 60_000L).toInt()
+    val totalFocusMin = (sessions.sumOf { it.elapsedSeconds } / 60L).toInt()
+    val completedSessions = sessions.count { it.completed }
+    val blockedAttempts = analytics.sumOf { it.blockedAttemptsCount }
+    val mindfulUnlocks = analytics.sumOf { it.unlockCount }
+    val goalHit = totalScreenMin <= goal.dailyScreenTimeGoalMinutes * 7
+    val statusBadge = if (goalHit) "On Track with Wellbeing Goal" else "Above Weekly Screen Budget"
+
+    val appRows =
       usage
         .groupBy { it.appName }
         .map { (name, items) -> name to (items.sumOf { it.foregroundTimeMs } / 60_000L) }
         .sortedByDescending { it.second }
-        .take(15)
+        .take(12)
         .joinToString("") { (name, mins) ->
           "<tr><td>${escapeHtml(name)}</td><td>${FocusTimeUtils.formatDurationMinutes(mins.toInt())}</td></tr>"
         }
+        .ifBlank { "<tr><td colspan='2'>No measured app usage in this range.</td></tr>" }
+
+    val categoryRows =
+      usage
+        .groupBy { it.category.ifBlank { "Other" } }
+        .map { (cat, items) -> cat to (items.sumOf { it.foregroundTimeMs } / 60_000L) }
+        .sortedByDescending { it.second }
+        .take(6)
+        .joinToString("") { (cat, mins) ->
+          "<tr><td>${escapeHtml(cat)}</td><td>${FocusTimeUtils.formatDurationMinutes(mins.toInt())}</td></tr>"
+        }
+        .ifBlank { "<tr><td colspan='2'>No category data recorded.</td></tr>" }
+
+    val reflectionLine =
+      when {
+        totalFocusMin >= goal.weeklyFocusGoalMinutes ->
+          "Strong week: you surpassed your weekly focus goal while logging $completedSessions deep work sessions."
+        blockedAttempts > 0 ->
+          "Your FocusNest Shield deflected $blockedAttempts distraction triggers. Consider tightening evening bedtime boundaries."
+        else ->
+          "Keep measuring daily usage and building one small screen-free routine at a time."
+      }
+
     return """
       <!DOCTYPE html>
       <html>
       <head><meta charset="utf-8"><style>
-      body{font-family:sans-serif;padding:24px;color:#0E2D27}
-      h1{margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-top:16px}
-      th,td{border-bottom:1px solid #d5e0dc;padding:8px;text-align:left}
+      body{font-family:sans-serif;padding:28px;color:#0E2D27;background:#ffffff;line-height:1.45}
+      .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0E2D27;padding-bottom:12px;margin-bottom:18px}
+      .badge{display:inline-block;padding:4px 10px;border-radius:999px;background:#D7F5EA;color:#0E2D27;font-size:12px;font-weight:bold}
+      .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
+      .kpi{border:1px solid #d5e0dc;border-radius:10px;padding:12px;background:#F6F8F6}
+      .kpi .label{font-size:11px;color:#46615A;text-transform:uppercase}
+      .kpi .val{font-size:20px;font-weight:bold;margin-top:4px}
+      h1{margin:0;font-size:22px}h2{font-size:15px;margin-top:20px;margin-bottom:8px;color:#155E50}
+      table{width:100%;border-collapse:collapse;margin-top:6px}
+      th,td{border-bottom:1px solid #d5e0dc;padding:8px;text-align:left;font-size:13px}
+      th{background:#F0F5F3;font-weight:bold}
+      .reflection{margin-top:18px;padding:12px 14px;border-left:4px solid #155E50;background:#F4F9F7;font-size:13px}
       </style></head>
       <body>
-      <h1>FocusNest Digital Wellbeing Report</h1>
-      <p>Range: $startDateKey to $endDateKey</p>
-      <p><strong>Total Screen Time:</strong> ${FocusTimeUtils.formatDurationMinutes(totalScreenMin.toInt())} &nbsp;|&nbsp;
-      <strong>Total Focus Time:</strong> ${FocusTimeUtils.formatDurationMinutes(totalFocusMin.toInt())} (${sessions.count { it.completed }} completed sessions)</p>
-      <table><tr><th>Application</th><th>Measured Usage</th></tr>$rows</table>
+      <div class="header">
+        <div>
+          <h1>FocusNest Weekly Wellbeing Report Card</h1>
+          <div style="color:#46615A;font-size:13px">Window: $startDateKey to $endDateKey • 100% On-Device Report</div>
+        </div>
+        <span class="badge">$statusBadge</span>
+      </div>
+      <div class="grid">
+        <div class="kpi"><div class="label">Screen Time</div><div class="val">${FocusTimeUtils.formatDurationMinutes(totalScreenMin)}</div></div>
+        <div class="kpi"><div class="label">Deep Focus</div><div class="val">${FocusTimeUtils.formatDurationMinutes(totalFocusMin)} ($completedSessions)</div></div>
+        <div class="kpi"><div class="label">Shield Deflections</div><div class="val">$blockedAttempts / $mindfulUnlocks</div></div>
+        <div class="kpi"><div class="label">Habit Check-ins</div><div class="val">${habitLogs.size} (${activeHabits.size} active)</div></div>
+      </div>
+      <h2>Category Time Distribution</h2>
+      <table><tr><th>Category</th><th>Time Used</th></tr>$categoryRows</table>
+      <h2>Top Applications</h2>
+      <table><tr><th>Application</th><th>Measured Usage</th></tr>$appRows</table>
+      <div class="reflection"><strong>Weekly Reflection Summary:</strong> ${escapeHtml(reflectionLine)}</div>
       </body></html>
     """.trimIndent()
   }

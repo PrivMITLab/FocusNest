@@ -17,8 +17,10 @@ import androidx.core.app.NotificationCompat
 import com.example.FocusNestApplication
 import com.example.MainActivity
 import com.example.R
+import com.example.core.audio.AmbientSoundEngine
 import com.example.core.database.FocusSessionEntity
 import com.example.core.datastore.PersistedTimerState
+import com.example.domain.model.AmbientSoundType
 import com.example.domain.model.FocusTimeUtils
 import com.example.domain.model.SessionType
 import com.example.domain.model.TimerMode
@@ -37,6 +39,7 @@ import kotlinx.coroutines.launch
 class FocusTimerService : Service() {
   private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private var tickerJob: Job? = null
+  private val ambientEngine = AmbientSoundEngine()
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,6 +96,7 @@ class FocusTimerService : Service() {
             app.container.preferences.saveTimerState(paused)
           }
           tickerJob?.cancel()
+          ambientEngine.stop()
           stopForegroundCompat()
           WidgetUpdater.refreshAll(applicationContext)
           stopSelf()
@@ -213,6 +217,7 @@ class FocusTimerService : Service() {
             )
           )
           tickerJob?.cancel()
+          ambientEngine.stop()
           stopForegroundCompat()
           WidgetUpdater.refreshAll(applicationContext)
           stopSelf()
@@ -254,11 +259,21 @@ class FocusTimerService : Service() {
       serviceScope.launch {
         while (isActive) {
           val state = app.container.preferences.timerStateFlow.first()
-          if (!state.isRunning || state.phase == TimerPhase.IDLE) break
+          if (!state.isRunning || state.phase == TimerPhase.IDLE) {
+            ambientEngine.stop()
+            break
+          }
+          val settings = app.container.preferences.settingsFlow.first()
+          if (state.phase == TimerPhase.FOCUS && settings.ambientSoundType != AmbientSoundType.OFF) {
+            ambientEngine.startOrUpdate(settings.ambientSoundType, settings.ambientSoundVolume)
+          } else {
+            ambientEngine.stop()
+          }
           val now = System.currentTimeMillis()
           val elapsedNow = SystemClock.elapsedRealtime()
           val remainingSec = remainingSecondsForState(state, now, elapsedNow)
           if (state.mode != TimerMode.STOPWATCH && remainingSec <= 0L) {
+            ambientEngine.stop()
             handlePhaseFinished(app, state)
             break
           }
@@ -458,6 +473,7 @@ class FocusTimerService : Service() {
   }
 
   override fun onDestroy() {
+    ambientEngine.stop()
     super.onDestroy()
     serviceScope.cancel()
   }
@@ -511,11 +527,7 @@ class FocusTimerService : Service() {
           putExtra(EXTRA_NOTE, note)
           putExtra(EXTRA_PROFILE_ID, profileId ?: -1L)
         }
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent)
-      } else {
-        context.startService(intent)
-      }
+      context.startForegroundService(intent)
     }
 
     fun extendTimer(context: Context, deltaMinutes: Int = 5) {
@@ -533,7 +545,7 @@ class FocusTimerService : Service() {
           this.action = action
           putExtra(EXTRA_COMPLETED, completed)
         }
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && (action == ACTION_RESUME || action == ACTION_SKIP_BREAK || action == ACTION_RESTART)) {
+      if (action == ACTION_RESUME || action == ACTION_SKIP_BREAK || action == ACTION_RESTART) {
         context.startForegroundService(intent)
       } else {
         context.startService(intent)

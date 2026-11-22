@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -36,7 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -65,6 +66,7 @@ import com.example.core.database.ShortFormRuleEntity
 import com.example.core.database.UnlockHistoryEntity
 import com.example.core.database.WebsiteRuleEntity
 import com.example.core.datastore.FocusNestSettings
+import com.example.core.design.AdaptiveTwoPane
 import com.example.core.design.FocusNestEmptyState
 import com.example.core.design.InstalledAppIcon
 import com.example.core.design.SanctuaryCard
@@ -75,8 +77,9 @@ import com.example.domain.model.FocusTimeUtils
 import com.example.domain.model.PermissionSnapshot
 import com.example.domain.model.UnlockChallengeType
 import com.example.ui.blocker.BlockedOverlayActivity
+import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun BlockerScreen(
   settings: FocusNestSettings,
@@ -112,6 +115,8 @@ fun BlockerScreen(
   onSaveCategoryLimit: (String, Int, Boolean, UnlockChallengeType) -> Unit = { _, _, _, _ -> },
   onDeleteCategoryLimit: (String) -> Unit = {},
   onToggleBlockedNetworkPackage: (String, Boolean) -> Unit = { _, _ -> },
+  onUpdateLaunchPauseConfig: (Boolean?, Int?) -> Unit = { _, _ -> },
+  onToggleLaunchPausePackage: (String, Boolean) -> Unit = { _, _ -> },
 ) {
   val context = LocalContext.current
   var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -148,7 +153,7 @@ fun BlockerScreen(
       )
     }
 
-    ScrollableTabRow(selectedTabIndex = selectedTab, edgePadding = 12.dp) {
+    PrimaryScrollableTabRow(selectedTabIndex = selectedTab, edgePadding = 12.dp) {
       tabs.forEachIndexed { index, title ->
         Tab(
           selected = selectedTab == index,
@@ -173,211 +178,287 @@ fun BlockerScreen(
             }
           }
 
-        LazyColumn(
-          modifier = Modifier.fillMaxSize(),
-          contentPadding = PaddingValues(16.dp),
-          verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          if (!permissions.accessibilityEnabled) {
+        AdaptiveTwoPane(
+          modifier = Modifier.weight(1f),
+          primaryPane = {
+            if (!permissions.accessibilityEnabled) {
+              item {
+                SanctuaryCard(highlight = true) {
+                  Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Accessibility Service Needed for Live Blocking", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                      "UsageStatsManager measures usage, while Android's optional Accessibility Service detects foreground app launches in real time so FocusNest can present the block screen.",
+                      style = MaterialTheme.typography.bodyMedium,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                      onClick = {
+                        PermissionManager.safeStartSettings(
+                          context,
+                          PermissionManager.accessibilitySettingsIntent(),
+                        )
+                      },
+                      modifier = Modifier.testTag("blocker_enable_accessibility_btn"),
+                    ) {
+                      Text("Open Accessibility Settings")
+                    }
+                  }
+                }
+              }
+            }
+
             item {
-              SanctuaryCard(highlight = true) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                  Text("Accessibility Service Needed for Live Blocking", style = MaterialTheme.typography.titleMedium)
+              SanctuaryCard(
+                highlight = settings.launchPauseEnabled,
+                modifier = Modifier.testTag("blocker_launch_pause_card"),
+              ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                      Icon(Icons.Default.SelfImprovement, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                      Spacer(modifier = Modifier.width(8.dp))
+                      Column {
+                        Text("Mindful Launch Pause Curtain", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                          "Show a ${settings.launchPauseSeconds}s breathing pause before selected apps open",
+                          style = MaterialTheme.typography.bodyMedium,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                      }
+                    }
+                    Switch(
+                      checked = settings.launchPauseEnabled,
+                      onCheckedChange = { onUpdateLaunchPauseConfig(it, null) },
+                      modifier = Modifier.testTag("blocker_launch_pause_switch"),
+                    )
+                  }
                   Text(
-                    "UsageStatsManager measures usage, while Android's optional Accessibility Service detects foreground app launches in real time so FocusNest can present the block screen.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Pause delay: ${settings.launchPauseSeconds}s • ${settings.launchPausePackages.size} app(s) armed",
+                    style = MaterialTheme.typography.labelLarge,
                   )
-                  Button(
+                  Slider(
+                    value = settings.launchPauseSeconds.toFloat(),
+                    onValueChange = { onUpdateLaunchPauseConfig(null, it.toInt()) },
+                    valueRange = 5f..15f,
+                    steps = 9,
+                    modifier = Modifier.testTag("blocker_launch_pause_slider"),
+                  )
+                  OutlinedButton(
                     onClick = {
-                      PermissionManager.safeStartSettings(
-                        context,
-                        PermissionManager.accessibilitySettingsIntent(),
+                      val samplePkg = settings.launchPausePackages.firstOrNull()
+                        ?: installedApps.firstOrNull()?.packageName
+                        ?: "com.example.demo"
+                      val sampleName =
+                        installedApps.firstOrNull { it.packageName == samplePkg }?.appName ?: "Mindful App"
+                      BlockedOverlayActivity.launchPreview(
+                        context = context,
+                        packageName = samplePkg,
+                        appName = sampleName,
+                        challengeType = UnlockChallengeType.BREATHING,
+                        isLaunchPause = true,
+                        launchPauseSeconds = settings.launchPauseSeconds,
                       )
                     },
-                    modifier = Modifier.testTag("blocker_enable_accessibility_btn"),
+                    modifier = Modifier.fillMaxWidth().testTag("blocker_preview_launch_pause_btn"),
                   ) {
-                    Text("Open Accessibility Settings")
+                    Text("Preview Breathing Pause Curtain")
                   }
                 }
               }
             }
-          }
 
-          item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              OutlinedButton(
-                onClick = { showCreateGroupDialog = true },
-                modifier = Modifier.weight(1f).testTag("blocker_new_group_btn"),
-              ) {
-                Icon(Icons.Default.GroupWork, contentDescription = null)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("App Group")
-              }
-              OutlinedButton(
-                onClick = { showCategoryLimitDialog = true },
-                modifier = Modifier.weight(1f).testTag("blocker_new_category_limit_btn"),
-              ) {
-                Text("Category Cap")
-              }
-              OutlinedButton(
-                onClick = {
-                  BlockedOverlayActivity.launchPreview(
-                    context = context,
-                    packageName = installedApps.firstOrNull()?.packageName ?: "com.example.demo",
-                    appName = installedApps.firstOrNull()?.appName ?: "Sample App",
-                    challengeType = UnlockChallengeType.BREATHING,
-                  )
-                },
-                modifier = Modifier.weight(1f).testTag("blocker_preview_overlay_btn"),
-              ) {
-                Text("Preview")
-              }
-            }
-          }
-
-          if (categoryLimits.isNotEmpty()) {
             item {
-              SectionHeader("Category Daily Caps", subtitle = "Aggregate limits per app category")
-            }
-            items(categoryLimits, key = { "cat_${it.categoryName}" }) { cat ->
-              SanctuaryCard {
-                Row(
-                  modifier = Modifier.fillMaxWidth().padding(14.dp),
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  verticalAlignment = Alignment.CenterVertically,
+              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                  onClick = { showCreateGroupDialog = true },
+                  modifier = Modifier.weight(1f).testTag("blocker_new_group_btn"),
                 ) {
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(cat.categoryName, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                      "${cat.dailyLimitMinutes}m daily cap • ${cat.challengeType}",
-                      style = MaterialTheme.typography.bodyMedium,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  Icon(Icons.Default.GroupWork, contentDescription = null)
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("App Group")
+                }
+                OutlinedButton(
+                  onClick = { showCategoryLimitDialog = true },
+                  modifier = Modifier.weight(1f).testTag("blocker_new_category_limit_btn"),
+                ) {
+                  Text("Category Cap")
+                }
+                OutlinedButton(
+                  onClick = {
+                    BlockedOverlayActivity.launchPreview(
+                      context = context,
+                      packageName = installedApps.firstOrNull()?.packageName ?: "com.example.demo",
+                      appName = installedApps.firstOrNull()?.appName ?: "Sample App",
+                      challengeType = UnlockChallengeType.BREATHING,
                     )
-                  }
-                  IconButton(onClick = { onDeleteCategoryLimit(cat.categoryName) }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete category limit")
+                  },
+                  modifier = Modifier.weight(1f).testTag("blocker_preview_overlay_btn"),
+                ) {
+                  Text("Preview")
+                }
+              }
+            }
+
+            if (categoryLimits.isNotEmpty()) {
+              item {
+                SectionHeader("Category Daily Caps", subtitle = "Aggregate limits per app category")
+              }
+              items(categoryLimits, key = { "cat_${it.categoryName}" }) { cat ->
+                SanctuaryCard {
+                  Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                      Text(cat.categoryName, style = MaterialTheme.typography.titleMedium)
+                      Text(
+                        "${cat.dailyLimitMinutes}m daily cap • ${cat.challengeType}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
+                    IconButton(onClick = { onDeleteCategoryLimit(cat.categoryName) }) {
+                      Icon(Icons.Default.Delete, contentDescription = "Delete category limit")
+                    }
                   }
                 }
               }
             }
-          }
 
-          if (appGroups.isNotEmpty()) {
+            if (appGroups.isNotEmpty()) {
+              item {
+                SectionHeader("Shared App Groups", subtitle = "Combined daily time caps")
+              }
+              items(appGroups, key = { it.id }) { group ->
+                SanctuaryCard {
+                  Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                      Text(group.name, style = MaterialTheme.typography.titleMedium)
+                      Text(
+                        "${group.packageNames.size} apps • ${group.sharedDailyLimitMinutes}m shared daily limit",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
+                    IconButton(onClick = { onDeleteAppGroup(group) }) {
+                      Icon(Icons.Default.Delete, contentDescription = "Delete group")
+                    }
+                  }
+                }
+              }
+            }
+          },
+          secondaryPane = {
             item {
-              SectionHeader("Shared App Groups", subtitle = "Combined daily time caps")
-            }
-            items(appGroups, key = { it.id }) { group ->
-              SanctuaryCard {
-                Row(
-                  modifier = Modifier.fillMaxWidth().padding(14.dp),
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  verticalAlignment = Alignment.CenterVertically,
-                ) {
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(group.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                      "${group.packageNames.size} apps • ${group.sharedDailyLimitMinutes}m shared daily limit",
-                      style = MaterialTheme.typography.bodyMedium,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                  }
-                  IconButton(onClick = { onDeleteAppGroup(group) }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete group")
-                  }
-                }
-              }
-            }
-          }
-
-          item {
-            OutlinedTextField(
-              value = appSearch,
-              onValueChange = { appSearch = it },
-              label = { Text("Search installed applications") },
-              singleLine = true,
-              modifier = Modifier.fillMaxWidth().testTag("blocker_app_search"),
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            FlowRow(
-              horizontalArrangement = Arrangement.spacedBy(6.dp),
-              verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-              FilterChip(
-                selected = selectedCategory == null,
-                onClick = { selectedCategory = null },
-                label = { Text("All") },
+              OutlinedTextField(
+                value = appSearch,
+                onValueChange = { appSearch = it },
+                label = { Text("Search installed applications") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("blocker_app_search"),
               )
-              AppCategory.entries.forEach { cat ->
+              Spacer(modifier = Modifier.height(8.dp))
+              FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+              ) {
                 FilterChip(
-                  selected = selectedCategory == cat,
-                  onClick = { selectedCategory = if (selectedCategory == cat) null else cat },
-                  label = { Text(cat.label) },
+                  selected = selectedCategory == null,
+                  onClick = { selectedCategory = null },
+                  label = { Text("All") },
+                )
+                AppCategory.entries.forEach { cat ->
+                  FilterChip(
+                    selected = selectedCategory == cat,
+                    onClick = { selectedCategory = if (selectedCategory == cat) null else cat },
+                    label = { Text(cat.label) },
+                  )
+                }
+              }
+            }
+
+            if (filteredApps.isEmpty()) {
+              item {
+                FocusNestEmptyState(
+                  icon = Icons.Default.Block,
+                  title = "No Matching Apps Found",
+                  message = "Try clearing your search filter or refreshing installed applications.",
                 )
               }
-            }
-          }
-
-          if (filteredApps.isEmpty()) {
-            item {
-              FocusNestEmptyState(
-                icon = Icons.Default.Block,
-                title = "No Matching Apps Found",
-                message = "Try clearing your search filter or refreshing installed applications.",
-              )
-            }
-          } else {
-            items(filteredApps, key = { it.packageName }) { app ->
-              val limit = limitsMap[app.packageName]
-              val usageMs = usageMap[app.packageName]?.foregroundTimeMs ?: 0L
-              SanctuaryCard(highlight = limit?.isBlockedManually == true) {
-                Row(
-                  modifier = Modifier.fillMaxWidth().padding(14.dp),
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  verticalAlignment = Alignment.CenterVertically,
-                ) {
-                  InstalledAppIcon(packageName = app.packageName, appName = app.appName, size = 36.dp)
-                  Spacer(modifier = Modifier.width(10.dp))
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(app.appName, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                      buildString {
-                        append(app.category)
-                        if (usageMs > 0L) append(" • ${FocusTimeUtils.formatDurationMillis(usageMs)} today")
-                        if (app.isEmergencyWhitelisted) append(" • Emergency Safe")
-                      },
-                      style = MaterialTheme.typography.bodyMedium,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (limit != null) {
-                      Text(
-                        buildString {
-                          if (limit.isBlockedManually) append("Blocked • ")
-                          if (limit.dailyLimitMinutes > 0) append("${limit.dailyLimitMinutes}m/day ")
-                          if (limit.gracePeriodMinutes > 0) append("+${limit.gracePeriodMinutes}m grace ")
-                          if (limit.weeklyLimitMinutes > 0) append("${limit.weeklyLimitMinutes}m/wk ")
-                          append("(${limit.challengeType})")
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
+            } else {
+              items(filteredApps, key = { it.packageName }) { app ->
+                val limit = limitsMap[app.packageName]
+                val usageMs = usageMap[app.packageName]?.foregroundTimeMs ?: 0L
+                val isLaunchPaused = app.packageName in settings.launchPausePackages
+                SanctuaryCard(highlight = limit?.isBlockedManually == true || isLaunchPaused) {
+                  Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                      verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                      InstalledAppIcon(packageName = app.packageName, appName = app.appName, size = 36.dp)
+                      Spacer(modifier = Modifier.width(10.dp))
+                      Column(modifier = Modifier.weight(1f)) {
+                        Text(app.appName, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                          buildString {
+                            append(app.category)
+                            if (usageMs > 0L) append(" • ${FocusTimeUtils.formatDurationMillis(usageMs)} today")
+                            if (app.isEmergencyWhitelisted) append(" • Emergency Safe")
+                          },
+                          style = MaterialTheme.typography.bodyMedium,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (limit != null) {
+                          Text(
+                            buildString {
+                              if (limit.isBlockedManually) append("Blocked • ")
+                              if (limit.dailyLimitMinutes > 0) append("${limit.dailyLimitMinutes}m/day ")
+                              if (limit.gracePeriodMinutes > 0) append("+${limit.gracePeriodMinutes}m grace ")
+                              if (limit.weeklyLimitMinutes > 0) append("${limit.weeklyLimitMinutes}m/wk ")
+                              append("(${limit.challengeType})")
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                          )
+                        }
+                      }
+                      Button(onClick = { editingLimitForApp = app }) {
+                        Text(if (limit == null) "Rule" else "Edit")
+                      }
+                    }
+                    FlowRow(
+                      horizontalArrangement = Arrangement.spacedBy(8.dp),
+                      verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                      FilterChip(
+                        selected = isLaunchPaused,
+                        onClick = { onToggleLaunchPausePackage(app.packageName, !isLaunchPaused) },
+                        label = { Text(if (isLaunchPaused) "Launch Pause On" else "Add Launch Pause") },
+                        modifier = Modifier.testTag("blocker_pause_toggle_${app.packageName}"),
+                      )
+                      FilterChip(
+                        selected = app.isEmergencyWhitelisted,
+                        onClick = { onToggleEmergencyWhitelist(app.packageName, !app.isEmergencyWhitelisted) },
+                        label = { Text(if (app.isEmergencyWhitelisted) "Emergency Safe" else "Allow Safe") },
                       )
                     }
                   }
-                  Row {
-                    TextButton(
-                      onClick = { onToggleEmergencyWhitelist(app.packageName, !app.isEmergencyWhitelisted) },
-                    ) {
-                      Text(if (app.isEmergencyWhitelisted) "Safe" else "Allow")
-                    }
-                    Button(onClick = { editingLimitForApp = app }) {
-                      Text(if (limit == null) "Rule" else "Edit")
-                    }
-                  }
                 }
               }
             }
-          }
-        }
+          },
+        )
       }
 
       1 -> {
@@ -1036,9 +1117,9 @@ fun BlockerScreen(
               )
             }
           }
-          Text("Start Hour: ${String.format("%02d:00", startHour)}")
+          Text("Start Hour: ${String.format(Locale.US, "%02d:00", startHour)}")
           Slider(value = startHour.toFloat(), onValueChange = { startHour = it.toInt() }, valueRange = 0f..23f)
-          Text("End Hour: ${String.format("%02d:00", endHour)}")
+          Text("End Hour: ${String.format(Locale.US, "%02d:00", endHour)}")
           Slider(value = endHour.toFloat(), onValueChange = { endHour = it.toInt() }, valueRange = 0f..23f)
         }
       },

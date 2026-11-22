@@ -64,6 +64,7 @@ import com.example.core.design.SanctuaryCard
 import com.example.domain.model.UnlockChallengeEngine
 import com.example.domain.model.UnlockChallengeType
 import com.example.feature.challenges.OfflineQrBarcodeScannerDialog
+import com.example.service.AppBlockerAccessibilityService
 import com.example.ui.theme.FocusNestTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -83,6 +84,8 @@ class BlockedOverlayActivity : ComponentActivity() {
     val profileName = intent.getStringExtra(EXTRA_PROFILE_NAME) ?: "FocusNest Shield"
     val challengeName = intent.getStringExtra(EXTRA_CHALLENGE_TYPE) ?: UnlockChallengeType.REFLECTION_REMINDER.name
     val isReelsPause = intent.getBooleanExtra(EXTRA_IS_REELS_PAUSE, false)
+    val isLaunchPause = intent.getBooleanExtra(EXTRA_IS_LAUNCH_PAUSE, false)
+    val launchPauseSeconds = intent.getIntExtra(EXTRA_LAUNCH_PAUSE_SECONDS, 8).coerceIn(5, 15)
     val challengeType = runCatching { UnlockChallengeType.valueOf(challengeName) }.getOrDefault(UnlockChallengeType.REFLECTION_REMINDER)
 
     val app = application as FocusNestApplication
@@ -103,6 +106,8 @@ class BlockedOverlayActivity : ComponentActivity() {
           reason = reason,
           challengeType = challengeType,
           isReelsPause = isReelsPause,
+          isLaunchPause = isLaunchPause,
+          launchPauseSeconds = launchPauseSeconds,
           scannedNfcUid = scannedNfcUidState.value,
           errorText = errorText,
           hasEmergencyPasscode = settings.emergencyPasscodeHash.isNotBlank(),
@@ -119,6 +124,17 @@ class BlockedOverlayActivity : ComponentActivity() {
               val tag = app.container.blockerRepository.findNfcTag(uid)
               if (tag != null) onSuccess()
               else errorText = "NFC tag ($uid) is not registered."
+            }
+          },
+          onProceedMindfulLaunch = {
+            AppBlockerAccessibilityService.markLaunchPauseProceed(pkg)
+            scope.launch {
+              app.container.blockerRepository.recordMindfulLaunchProceed(
+                packageName = pkg,
+                appName = appName,
+                pauseSeconds = launchPauseSeconds,
+              )
+              finish()
             }
           },
           onGrantUnlock = { minutes, intention ->
@@ -193,20 +209,30 @@ class BlockedOverlayActivity : ComponentActivity() {
     const val EXTRA_PROFILE_NAME = "extra_profile_name"
     const val EXTRA_CHALLENGE_TYPE = "extra_challenge"
     const val EXTRA_IS_REELS_PAUSE = "extra_reels_pause"
+    const val EXTRA_IS_LAUNCH_PAUSE = "extra_launch_pause"
+    const val EXTRA_LAUNCH_PAUSE_SECONDS = "extra_launch_pause_seconds"
 
     fun launchPreview(
       context: Context,
       packageName: String,
       appName: String,
       challengeType: UnlockChallengeType,
+      isLaunchPause: Boolean = false,
+      launchPauseSeconds: Int = 8,
     ) {
       context.startActivity(
         Intent(context, BlockedOverlayActivity::class.java).apply {
           putExtra(EXTRA_PACKAGE_NAME, packageName)
           putExtra(EXTRA_APP_NAME, appName)
-          putExtra(EXTRA_REASON, "Preview of ${challengeType.label}")
-          putExtra(EXTRA_PROFILE_NAME, "Interactive Preview")
+          putExtra(
+            EXTRA_REASON,
+            if (isLaunchPause) "Mindful ${launchPauseSeconds}s breath before opening $appName"
+            else "Preview of ${challengeType.label}",
+          )
+          putExtra(EXTRA_PROFILE_NAME, if (isLaunchPause) "Mindful Launch Pause" else "Interactive Preview")
           putExtra(EXTRA_CHALLENGE_TYPE, challengeType.name)
+          putExtra(EXTRA_IS_LAUNCH_PAUSE, isLaunchPause)
+          putExtra(EXTRA_LAUNCH_PAUSE_SECONDS, launchPauseSeconds)
         }
       )
     }
@@ -221,12 +247,15 @@ private fun BlockedScreenContent(
   reason: String,
   challengeType: UnlockChallengeType,
   isReelsPause: Boolean,
+  isLaunchPause: Boolean,
+  launchPauseSeconds: Int,
   scannedNfcUid: String?,
   errorText: String?,
   hasEmergencyPasscode: Boolean,
   emergencyPasscodeHash: String,
   onVerifyQrOrBarcode: (String, () -> Unit) -> Unit,
   onVerifyNfcUid: (String, () -> Unit) -> Unit,
+  onProceedMindfulLaunch: () -> Unit,
   onGrantUnlock: (Int, String) -> Unit,
   onReturnHome: () -> Unit,
 ) {
@@ -238,6 +267,7 @@ private fun BlockedScreenContent(
   var sentenceInput by remember { mutableStateOf("") }
   var intentionInput by remember { mutableStateOf("") }
   var cooldownRemaining by remember { mutableIntStateOf(15) }
+  var launchPauseRemaining by remember(launchPauseSeconds) { mutableIntStateOf(launchPauseSeconds) }
   var breathingSecondsLeft by remember { mutableIntStateOf(20) }
   var breathingPhaseText by remember { mutableStateOf("Inhale slowly…") }
   var breathingScaleTarget by remember { mutableStateOf(0.55f) }
@@ -246,7 +276,25 @@ private fun BlockedScreenContent(
   var emergencyPin by remember { mutableStateOf("") }
   var localError by remember { mutableStateOf<String?>(null) }
 
-  LaunchedEffect(challengeType) {
+  LaunchedEffect(challengeType, isLaunchPause, launchPauseSeconds) {
+    if (isLaunchPause) {
+      launchPauseRemaining = launchPauseSeconds
+      while (launchPauseRemaining > 0) {
+        val elapsed = launchPauseSeconds - launchPauseRemaining
+        val half = (launchPauseSeconds / 2).coerceAtLeast(2)
+        if (elapsed < half) {
+          breathingPhaseText = "Inhale slowly… Is $appName intentional?"
+          breathingScaleTarget = 1.0f
+        } else {
+          breathingPhaseText = "Exhale gently… Choose mindfully"
+          breathingScaleTarget = 0.6f
+        }
+        delay(1000L)
+        launchPauseRemaining--
+      }
+      breathingPhaseText = "Ready to decide"
+      return@LaunchedEffect
+    }
     if (challengeType == UnlockChallengeType.FIXED_COOLDOWN || challengeType == UnlockChallengeType.REFLECTION_REMINDER) {
       cooldownRemaining = 10
       while (cooldownRemaining > 0) {
@@ -300,7 +348,7 @@ private fun BlockedScreenContent(
       verticalArrangement = Arrangement.Center,
     ) {
       androidx.compose.foundation.Image(
-        painter = painterResource(if (isReelsPause) R.drawable.ic_focus_meditate else R.drawable.ic_blocking_shield),
+        painter = painterResource(if (isReelsPause || isLaunchPause) R.drawable.ic_focus_meditate else R.drawable.ic_blocking_shield),
         contentDescription = null,
         modifier = Modifier.size(64.dp),
       )
@@ -308,7 +356,12 @@ private fun BlockedScreenContent(
       FocusNestLogoMark(size = 44.dp)
       Spacer(modifier = Modifier.height(14.dp))
       Text(
-        text = if (isReelsPause) "Take a Mindful Breath" else "$appName Is Paused",
+        text =
+          when {
+            isLaunchPause -> "Pause Before Opening $appName"
+            isReelsPause -> "Take a Mindful Breath"
+            else -> "$appName Is Paused"
+          },
         style = MaterialTheme.typography.displayMedium,
         textAlign = TextAlign.Center,
       )
@@ -327,10 +380,55 @@ private fun BlockedScreenContent(
       ) {
         Icon(Icons.Default.Shield, contentDescription = null)
         Spacer(modifier = Modifier.padding(4.dp))
-        Text("Stay Focused & Leave App")
+        Text(if (isLaunchPause) "Return to Focus" else "Stay Focused & Leave App")
       }
 
       Spacer(modifier = Modifier.height(16.dp))
+
+      if (isLaunchPause) {
+        val animScale by animateFloatAsState(
+          targetValue = breathingScaleTarget,
+          animationSpec = tween(durationMillis = 1400),
+          label = "launchPauseOrb",
+        )
+        val orbColor = MaterialTheme.colorScheme.primary
+        SanctuaryCard(highlight = true) {
+          Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+          ) {
+            Box(modifier = Modifier.size(132.dp), contentAlignment = Alignment.Center) {
+              Canvas(modifier = Modifier.size(132.dp)) {
+                drawCircle(
+                  color = orbColor.copy(alpha = 0.22f),
+                  radius = (size.minDimension / 2f) * animScale,
+                )
+                drawCircle(
+                  color = orbColor.copy(alpha = 0.62f),
+                  radius = (size.minDimension / 3.1f) * animScale,
+                )
+              }
+              Text(
+                text = if (launchPauseRemaining > 0) "${launchPauseRemaining}s" else "Ready",
+                style = MaterialTheme.typography.headlineMedium,
+              )
+            }
+            Text(breathingPhaseText, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+            OutlinedButton(
+              enabled = launchPauseRemaining == 0,
+              onClick = onProceedMindfulLaunch,
+              modifier = Modifier.fillMaxWidth().height(48.dp).testTag("blocked_proceed_mindfully_btn"),
+            ) {
+              Text(
+                if (launchPauseRemaining > 0) "Wait ${launchPauseRemaining}s to Proceed"
+                else "Proceed Mindfully to $appName"
+              )
+            }
+          }
+        }
+        return@Scaffold
+      }
 
       SanctuaryCard {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -10,7 +10,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="FOCUSNEST • SCREEN TIME"
+        android:text="@string/widget_screen_time_header"
         android:textColor="#7CE3C4"
         android:textSize="11sp"
         android:textStyle="bold" />
@@ -20,7 +20,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="0m"
+        android:text="@string/widget_zero_minutes"
         android:textColor="#FFFFFF"
         android:textSize="26sp"
         android:textStyle="bold" />
@@ -30,7 +30,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
-        android:text="Goal: 3h 0m"
+        android:text="@string/widget_goal_default"
         android:textColor="#B5D4CC"
         android:textSize="12sp" />
 </LinearLayout>

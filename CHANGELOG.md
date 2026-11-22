@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.0] - 2026-11-22
+- **Adaptive Foldable & Tablet Two-Pane Layouts**: Added `AdaptiveTwoPane` responsive layouts across Home Dashboard, Focus Sanctuary, Blocker (`Apps & Limits`), Insights & Reports, and Habits plus a canonical List-Detail two-pane controller on More & Settings (`720.dp+`).
+- **Offline Ambient Focus Soundscapes**: Added pure-Kotlin synthesized `AmbientSoundEngine` (`Brown Noise`, `Soft Rain`, `Warm Drone`, `Study Wash`) wired to `FocusTimerService` and `FocusScreen` with volume control and zero network permissions or bundled MP3 bloat.
+- **Mindful App-Launch Pause Curtain**: Added `LaunchPauseCoordinator` + breathing orb curtain mode in `BlockedOverlayActivity` with configurable `5s–15s` delay, per-app toggles, instant preview, and 5-minute proceed cooldown.
+- **Weekly Printable / PDF Wellbeing Report Card**: Upgraded `InsightsAndBackupRepository.buildPrintableReportHtml` and Insights export panel with KPI tiles, focus goal attainment badge, category table, top apps table, and reflection logs.
+- **Bedtime Wind-Down Checklist & Night Display Shortcuts**: Added a daily auto-resetting evening wind-down checklist card with linear progress tracking alongside quick shortcuts to Android Display Brightness and Night Light settings.
+- **Zero-Internet App Updates**: Added an App Version & Offline Updates card (`Settings` and `Privacy & About`) that opens `https://github.com/OWNER/FocusNest/releases/latest` in the user's browser while preserving zero `INTERNET` permission.
+- **Android Lint & Resource Hygiene**: Resolved all Android Lint errors (`StaticFieldLeak`, `SwitchIntDef`, `ProtectedPermissions`, `MissingPermission`, `MissingTranslation`, `UnusedResources`, `IconLocation`, `ExperimentalMaterial3Api` opt-ins, and `PrimaryTabRow` migrations).
+- **Interactive Showcase Website & Public CI/CD**: Upgraded `/website` with a live 5-tab interactive phone preview and Light/Dark + Palette switcher; expanded GitHub Actions CI, tagged release packaging (`SHA256SUMS.txt`), GitHub Pages deployment, and Dependabot.
+
 ## [1.1.0] - 2026-11-22
 - **Habits & Routines Tracker**: Offline Room-backed `HabitEntity` & `HabitCompletionEntity` with streaks, 7-day completion strips, daily/weekly completion bar charts, and starter habits.
 - **Breathing Unlock Challenge (12th Method)**: Guided 4-2-4 inhale-hold-exhale orb challenge added to `UnlockChallengeType.BREATHING` alongside predefined intention chips and adaptive division math.

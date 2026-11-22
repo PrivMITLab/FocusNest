@@ -209,4 +209,64 @@ class FocusNestDomainUnitTest {
     assertTrue(categoryBlocked.isBlocked)
     assertEquals(58, categoryBlocked.priorityRank)
   }
+
+  @Test
+  fun launchPauseCoordinator_andWellbeingConfigs_workDeterministically() {
+    val pkg = "com.instagram.android"
+    val paused = setOf(pkg)
+    val now = 1_000_000L
+
+    assertFalse(
+      com.example.domain.model.LaunchPauseCoordinator.shouldTriggerPause(
+        packageName = pkg,
+        launchPauseEnabled = false,
+        pausedPackages = paused,
+        lastProceedEpochMs = null,
+        nowEpochMs = now,
+      )
+    )
+    assertFalse(
+      com.example.domain.model.LaunchPauseCoordinator.shouldTriggerPause(
+        packageName = "com.other.app",
+        launchPauseEnabled = true,
+        pausedPackages = paused,
+        lastProceedEpochMs = null,
+        nowEpochMs = now,
+      )
+    )
+    assertTrue(
+      com.example.domain.model.LaunchPauseCoordinator.shouldTriggerPause(
+        packageName = pkg,
+        launchPauseEnabled = true,
+        pausedPackages = paused,
+        lastProceedEpochMs = null,
+        nowEpochMs = now,
+      )
+    )
+    assertFalse(
+      com.example.domain.model.LaunchPauseCoordinator.shouldTriggerPause(
+        packageName = pkg,
+        launchPauseEnabled = true,
+        pausedPackages = paused,
+        lastProceedEpochMs = now - 60_000L,
+        nowEpochMs = now,
+      )
+    )
+    assertTrue(
+      com.example.domain.model.LaunchPauseCoordinator.shouldTriggerPause(
+        packageName = pkg,
+        launchPauseEnabled = true,
+        pausedPackages = paused,
+        lastProceedEpochMs = now - 6 * 60_000L,
+        nowEpochMs = now,
+      )
+    )
+
+    assertEquals(5, com.example.domain.model.AmbientSoundType.entries.size)
+    assertTrue(com.example.domain.model.BedtimeChecklistDefaults.steps.size >= 4)
+    assertEquals(
+      "https://github.com/OWNER/FocusNest/releases/latest",
+      com.example.domain.model.UpdateReleaseConfig.RELEASES_URL,
+    )
+  }
 }

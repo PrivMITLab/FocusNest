@@ -334,4 +334,54 @@ class FocusNestDatabaseAndRepoTest {
     helper.close()
     context.deleteDatabase(dbName)
   }
+
+  @Test
+  fun v12PreferencesAndReportCard_persistAndRenderWellbeingSummary() = runTest {
+    val today = FocusTimeUtils.todayKey()
+    prefs.updateSettings {
+      it.copy(
+        ambientSoundType = com.example.domain.model.AmbientSoundType.SOFT_RAIN,
+        ambientSoundVolume = 0.72f,
+        launchPauseEnabled = true,
+        launchPauseSeconds = 11,
+        launchPausePackages = setOf("com.video.app"),
+        windDownDateKey = today,
+        windDownCompletedIds = setOf("charger_away", "grayscale_night"),
+      )
+    }
+    val reloaded = prefs.settingsFlow.first()
+    assertEquals(com.example.domain.model.AmbientSoundType.SOFT_RAIN, reloaded.ambientSoundType)
+    assertEquals(0.72f, reloaded.ambientSoundVolume, 0.01f)
+    assertTrue(reloaded.launchPauseEnabled)
+    assertEquals(11, reloaded.launchPauseSeconds)
+    assertTrue("com.video.app" in reloaded.launchPausePackages)
+    assertEquals(setOf("charger_away", "grayscale_night"), reloaded.windDownCompletedIds)
+
+    blockerRepo.recordMindfulLaunchProceed("com.video.app", "Video App", 11)
+    val history = db.unlockDao().getRecentHistory()
+    assertTrue(history.any { it.packageName == "com.video.app" && it.granted && it.intentionText.contains("11s") })
+
+    focusRepo.recordFocusSession(
+      FocusSessionEntity(
+        dateKey = today,
+        sessionType = SessionType.STUDY.name,
+        timerMode = TimerMode.POMODORO.name,
+        plannedMinutes = 25,
+        elapsedSeconds = 1500,
+        completed = true,
+        note = "Architecture chapter",
+        startedAtEpochMs = 1_000_000L,
+        endedAtEpochMs = 2_500_000L,
+      )
+    )
+    db.appUsageDao().upsertAll(
+      listOf(AppUsageEntity(today, "com.video.app", "Video App", "VIDEO", foregroundTimeMs = 20 * 60_000L, launchCount = 4))
+    )
+
+    val html = insightsRepo.buildPrintableReportHtml(today, today)
+    assertTrue(html.contains("Wellbeing Report Card"))
+    assertTrue(html.contains("Category Distribution"))
+    assertTrue(html.contains("Video App"))
+    assertTrue(html.contains("Architecture chapter"))
+  }
 }

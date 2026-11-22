@@ -4,7 +4,6 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -101,31 +100,29 @@ class FocusNestApplication : Application() {
   }
 
   private fun createNotificationChannels() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-      val timerChannel =
-        NotificationChannel(
-            CHANNEL_TIMER,
-            "Focus Timer",
-            NotificationManager.IMPORTANCE_LOW,
-          )
-          .apply { description = "Ongoing focus timer and break phase alerts." }
-      val reminderChannel =
-        NotificationChannel(
-            CHANNEL_REMINDERS,
-            "Mindful Reminders",
-            NotificationManager.IMPORTANCE_DEFAULT,
-          )
-          .apply { description = "Break, bedtime, and 80%/90%/100% app usage limit warnings." }
-      val vpnChannel =
-        NotificationChannel(
-            CHANNEL_VPN,
-            "Local Website Filter",
-            NotificationManager.IMPORTANCE_LOW,
-          )
-          .apply { description = "Status of the on-device local DNS website filter." }
-      nm.createNotificationChannels(listOf(timerChannel, reminderChannel, vpnChannel))
-    }
+    val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val timerChannel =
+      NotificationChannel(
+          CHANNEL_TIMER,
+          "Focus Timer",
+          NotificationManager.IMPORTANCE_LOW,
+        )
+        .apply { description = "Ongoing focus timer and break phase alerts." }
+    val reminderChannel =
+      NotificationChannel(
+          CHANNEL_REMINDERS,
+          "Mindful Reminders",
+          NotificationManager.IMPORTANCE_DEFAULT,
+        )
+        .apply { description = "Break, bedtime, and 80%/90%/100% app usage limit warnings." }
+    val vpnChannel =
+      NotificationChannel(
+          CHANNEL_VPN,
+          "Local Website Filter",
+          NotificationManager.IMPORTANCE_LOW,
+        )
+        .apply { description = "Status of the on-device local DNS website filter." }
+    nm.createNotificationChannels(listOf(timerChannel, reminderChannel, vpnChannel))
   }
 
   private fun scheduleBackgroundMonitor() {

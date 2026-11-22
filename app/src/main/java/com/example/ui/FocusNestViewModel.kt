@@ -32,12 +32,14 @@ import com.example.core.datastore.FocusNestSettings
 import com.example.core.datastore.PersistedTimerState
 import com.example.core.permissions.PermissionManager
 import com.example.domain.model.AccentPalette
+import com.example.domain.model.AmbientSoundType
 import com.example.domain.model.FocusTimeUtils
 import com.example.domain.model.PermissionSnapshot
 import com.example.domain.model.SessionType
 import com.example.domain.model.ThemeMode
 import com.example.domain.model.TimerMode
 import com.example.domain.model.UnlockChallengeType
+import com.example.domain.model.UpdateReleaseConfig
 import com.example.service.FocusNestVpnService
 import com.example.service.FocusTimerService
 import com.example.widget.WidgetUpdater
@@ -320,6 +322,57 @@ class FocusNestViewModel(application: Application) : AndroidViewModel(applicatio
         )
       }
       _statusBanner.value = "Focus timer settings saved."
+    }
+  }
+
+  fun setAmbientSound(type: AmbientSoundType, volume: Float) {
+    viewModelScope.launch {
+      prefs.updateSettings {
+        it.copy(
+          ambientSoundType = type,
+          ambientSoundVolume = volume.coerceIn(0f, 1f),
+        )
+      }
+    }
+  }
+
+  fun updateLaunchPauseConfig(enabled: Boolean? = null, seconds: Int? = null) {
+    viewModelScope.launch {
+      prefs.updateSettings { cur ->
+        cur.copy(
+          launchPauseEnabled = enabled ?: cur.launchPauseEnabled,
+          launchPauseSeconds = (seconds ?: cur.launchPauseSeconds).coerceIn(5, 15),
+        )
+      }
+    }
+  }
+
+  fun toggleLaunchPausePackage(packageName: String, paused: Boolean) {
+    viewModelScope.launch {
+      prefs.updateSettings { cur ->
+        val next =
+          if (paused) cur.launchPausePackages + packageName
+          else cur.launchPausePackages - packageName
+        cur.copy(launchPausePackages = next)
+      }
+    }
+  }
+
+  fun toggleWindDownStep(stepId: String) {
+    viewModelScope.launch {
+      val todayKey = FocusTimeUtils.todayKey()
+      prefs.updateSettings { cur ->
+        val baseIds = if (cur.windDownDateKey == todayKey) cur.windDownCompletedIds else emptySet()
+        val nextIds = if (stepId in baseIds) baseIds - stepId else baseIds + stepId
+        cur.copy(windDownDateKey = todayKey, windDownCompletedIds = nextIds)
+      }
+    }
+  }
+
+  fun openReleasesInBrowser() {
+    val opened = PermissionManager.openExternalUrl(app, UpdateReleaseConfig.RELEASES_URL)
+    if (!opened) {
+      _statusBanner.value = "No browser app found. Visit ${UpdateReleaseConfig.RELEASES_URL} manually."
     }
   }
 

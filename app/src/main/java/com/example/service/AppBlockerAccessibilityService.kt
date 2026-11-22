@@ -5,8 +5,10 @@ import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.FocusNestApplication
+import com.example.domain.model.LaunchPauseCoordinator
 import com.example.domain.model.ReelsTargetApp
 import com.example.ui.blocker.BlockedOverlayActivity
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,8 +19,8 @@ import kotlinx.coroutines.launch
 /**
  * Narrowly scoped, privacy-first AccessibilityService.
  * - Never logs, stores, or transmits screen text or user inputs.
- * - Only checks foreground package transitions against user-configured blocking rules
- *   and configured short-form video view IDs when Reels/Shorts Reduction is explicitly enabled.
+ * - Only checks foreground package transitions against user-configured blocking rules,
+ *   Mindful App-Launch Pause packages, and short-form video view IDs.
  */
 class AppBlockerAccessibilityService : AccessibilityService() {
   private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -47,6 +49,34 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             profileName = decision.profileName ?: "FocusNest Shield",
             challengeType = decision.challengeType.name,
             isReelsPause = false,
+            isLaunchPause = false,
+            launchPauseSeconds = 8,
+          )
+          return@launch
+        }
+
+        val settings = app.container.preferences.settingsFlow.first()
+        val lastProceed = launchPauseCooldowns[pkg]
+        if (
+          LaunchPauseCoordinator.shouldTriggerPause(
+            packageName = pkg,
+            launchPauseEnabled = settings.launchPauseEnabled,
+            pausedPackages = settings.launchPausePackages,
+            lastProceedEpochMs = lastProceed,
+            nowEpochMs = now,
+          )
+        ) {
+          if (pkg == lastBlockedPackage && now - lastBlockedAtMs < 2500L) return@launch
+          lastBlockedPackage = pkg
+          lastBlockedAtMs = now
+          launchBlockedScreen(
+            packageName = pkg,
+            reason = "Mindful ${settings.launchPauseSeconds}s breath before entering",
+            profileName = "Mindful App-Launch Pause",
+            challengeType = "BREATHING",
+            isReelsPause = false,
+            isLaunchPause = true,
+            launchPauseSeconds = settings.launchPauseSeconds,
           )
           return@launch
         }
@@ -84,6 +114,8 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             profileName = "Reels & Shorts Reduction",
             challengeType = "REFLECTION_REMINDER",
             isReelsPause = true,
+            isLaunchPause = false,
+            launchPauseSeconds = 8,
           )
         }
       }
@@ -115,6 +147,8 @@ class AppBlockerAccessibilityService : AccessibilityService() {
     profileName: String,
     challengeType: String,
     isReelsPause: Boolean,
+    isLaunchPause: Boolean,
+    launchPauseSeconds: Int,
   ) {
     val intent =
       Intent(this, BlockedOverlayActivity::class.java).apply {
@@ -124,6 +158,8 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         putExtra(BlockedOverlayActivity.EXTRA_PROFILE_NAME, profileName)
         putExtra(BlockedOverlayActivity.EXTRA_CHALLENGE_TYPE, challengeType)
         putExtra(BlockedOverlayActivity.EXTRA_IS_REELS_PAUSE, isReelsPause)
+        putExtra(BlockedOverlayActivity.EXTRA_IS_LAUNCH_PAUSE, isLaunchPause)
+        putExtra(BlockedOverlayActivity.EXTRA_LAUNCH_PAUSE_SECONDS, launchPauseSeconds)
       }
     startActivity(intent)
   }
@@ -133,5 +169,13 @@ class AppBlockerAccessibilityService : AccessibilityService() {
   override fun onDestroy() {
     super.onDestroy()
     serviceScope.cancel()
+  }
+
+  companion object {
+    private val launchPauseCooldowns = ConcurrentHashMap<String, Long>()
+
+    fun markLaunchPauseProceed(packageName: String, nowEpochMs: Long = System.currentTimeMillis()) {
+      launchPauseCooldowns[packageName] = nowEpochMs
+    }
   }
 }

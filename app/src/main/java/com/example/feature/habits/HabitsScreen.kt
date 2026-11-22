@@ -1,13 +1,11 @@
 package com.example.feature.habits
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -60,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.core.database.HabitCompletionEntity
 import com.example.core.database.HabitEntity
+import com.example.core.design.AdaptiveTwoPane
 import com.example.core.design.BarChartCard
 import com.example.core.design.FocusNestEmptyState
 import com.example.core.design.MetricTile
@@ -129,48 +127,47 @@ fun HabitsScreen(
         }
       }
 
-      LazyColumn(
-        modifier = Modifier.fillMaxSize().testTag("habits_list"),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-      ) {
-        item {
-          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricTile(
-              label = "Done Today",
-              value = "$completedToday / ${habits.size}",
-              icon = Icons.Default.CheckCircle,
-              modifier = Modifier.weight(1f),
-            )
-            MetricTile(
-              label = "Best Streak",
-              value = "${bestStreak}d",
-              icon = Icons.Default.LocalFireDepartment,
-              tint = MaterialTheme.colorScheme.tertiary,
-              modifier = Modifier.weight(1f),
-            )
-          }
-        }
-
-        if (habits.isNotEmpty()) {
+      AdaptiveTwoPane(
+        listTestTag = "habits_list",
+        primaryPane = {
           item {
-            BarChartCard(
-              title = "7-Day Habit Completion Rate",
-              subtitle = "Percentage of active habits completed each day",
-              entries = weeklyRates,
-              valueFormatter = { "${it.toInt()}%" },
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+              MetricTile(
+                label = "Done Today",
+                value = "$completedToday / ${habits.size}",
+                icon = Icons.Default.CheckCircle,
+                modifier = Modifier.weight(1f),
+              )
+              MetricTile(
+                label = "Best Streak",
+                value = "${bestStreak}d",
+                icon = Icons.Default.LocalFireDepartment,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.weight(1f),
+              )
+            }
+          }
+
+          if (habits.isNotEmpty()) {
+            item {
+              BarChartCard(
+                title = "7-Day Habit Completion Rate",
+                subtitle = "Percentage of active habits completed each day",
+                entries = weeklyRates,
+                valueFormatter = { "${it.toInt()}%" },
+              )
+            }
+          }
+        },
+        secondaryPane = {
+          item {
+            SectionHeader(
+              title = "Active Offline Routines",
+              subtitle = "100% local Room tracking • Never synced externally",
+              actionLabel = if (habits.isEmpty()) "Starter Pack" else null,
+              onActionClick = if (habits.isEmpty()) onSeedStarterHabits else null,
             )
           }
-        }
-
-        item {
-          SectionHeader(
-            title = "Active Offline Routines",
-            subtitle = "100% local Room tracking • Never synced externally",
-            actionLabel = if (habits.isEmpty()) "Starter Pack" else null,
-            onActionClick = if (habits.isEmpty()) onSeedStarterHabits else null,
-          )
-        }
 
         if (habits.isEmpty()) {
           item {
@@ -325,7 +322,8 @@ fun HabitsScreen(
             }
           }
         }
-      }
+        },
+      )
     }
   }
 

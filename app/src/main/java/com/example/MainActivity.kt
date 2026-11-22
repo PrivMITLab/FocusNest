@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -75,15 +76,15 @@ import java.util.Locale
 
 sealed class MainTab(
   val route: String,
-  val label: String,
+  @androidx.annotation.StringRes val labelRes: Int,
   val selectedIcon: ImageVector,
   val unselectedIcon: ImageVector,
 ) {
-  data object Home : MainTab("home", "Home", Icons.Filled.Home, Icons.Outlined.Home)
-  data object Focus : MainTab("focus", "Focus", Icons.Filled.Timer, Icons.Outlined.Timer)
-  data object Blocker : MainTab("blocker", "Blocker", Icons.Filled.Shield, Icons.Outlined.Shield)
-  data object Insights : MainTab("insights", "Insights", Icons.Filled.Insights, Icons.Outlined.Insights)
-  data object More : MainTab("more", "More", Icons.Filled.Menu, Icons.Outlined.Menu)
+  data object Home : MainTab("home", R.string.nav_home, Icons.Filled.Home, Icons.Outlined.Home)
+  data object Focus : MainTab("focus", R.string.nav_focus, Icons.Filled.Timer, Icons.Outlined.Timer)
+  data object Blocker : MainTab("blocker", R.string.nav_blocker, Icons.Filled.Shield, Icons.Outlined.Shield)
+  data object Insights : MainTab("insights", R.string.nav_insights, Icons.Filled.Insights, Icons.Outlined.Insights)
+  data object More : MainTab("more", R.string.nav_more, Icons.Filled.Menu, Icons.Outlined.Menu)
 }
 
 class MainActivity : FragmentActivity() {
@@ -235,16 +236,17 @@ fun FocusNestAppRoot(
           NavigationBar {
             tabs.forEach { tab ->
               val selected = currentDest?.hierarchy?.any { it.route == tab.route } == true
+              val labelText = stringResource(tab.labelRes)
               NavigationBarItem(
                 selected = selected,
                 onClick = { navigateTab(tab.route) },
                 icon = {
                   Icon(
                     if (selected) tab.selectedIcon else tab.unselectedIcon,
-                    contentDescription = tab.label,
+                    contentDescription = labelText,
                   )
                 },
-                label = { Text(tab.label) },
+                label = { Text(labelText) },
                 modifier = Modifier.testTag("nav_${tab.route}"),
               )
             }
@@ -257,16 +259,17 @@ fun FocusNestAppRoot(
           NavigationRail {
             tabs.forEach { tab ->
               val selected = currentDest?.hierarchy?.any { it.route == tab.route } == true
+              val labelText = stringResource(tab.labelRes)
               NavigationRailItem(
                 selected = selected,
                 onClick = { navigateTab(tab.route) },
                 icon = {
                   Icon(
                     if (selected) tab.selectedIcon else tab.unselectedIcon,
-                    contentDescription = tab.label,
+                    contentDescription = labelText,
                   )
                 },
-                label = { Text(tab.label) },
+                label = { Text(labelText) },
                 modifier = Modifier.testTag("nav_${tab.route}"),
               )
             }
@@ -322,6 +325,7 @@ fun FocusNestAppRoot(
                 onExtendTimer = viewModel::extendFocusSession,
                 onRestartTimer = viewModel::restartFocusSession,
                 onSkipBreak = viewModel::skipFocusBreak,
+                onUpdateAmbientSound = viewModel::setAmbientSound,
               )
             }
             composable(MainTab.Blocker.route) {
@@ -359,6 +363,8 @@ fun FocusNestAppRoot(
                 onSaveCategoryLimit = viewModel::saveCategoryLimit,
                 onDeleteCategoryLimit = viewModel::deleteCategoryLimit,
                 onToggleBlockedNetworkPackage = viewModel::toggleBlockedNetworkPackage,
+                onUpdateLaunchPauseConfig = viewModel::updateLaunchPauseConfig,
+                onToggleLaunchPausePackage = viewModel::toggleLaunchPausePackage,
               )
             }
             composable(MainTab.Insights.route) {
@@ -410,6 +416,8 @@ fun FocusNestAppRoot(
                 onClearUsageHistory = viewModel::clearUsageHistory,
                 onClearNotificationHistory = viewModel::clearNotificationHistory,
                 onClearHabits = viewModel::clearHabits,
+                onToggleWindDownStep = viewModel::toggleWindDownStep,
+                onOpenReleases = viewModel::openReleasesInBrowser,
               )
             }
             composable("habits") {

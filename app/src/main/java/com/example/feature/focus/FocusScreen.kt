@@ -1,23 +1,21 @@
 package com.example.feature.focus
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -34,10 +32,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,12 +58,14 @@ import com.example.core.database.FocusGoalEntity
 import com.example.core.database.FocusSessionEntity
 import com.example.core.datastore.FocusNestSettings
 import com.example.core.datastore.PersistedTimerState
+import com.example.core.design.AdaptiveTwoPane
 import com.example.core.design.AnimatedGoalRing
 import com.example.core.design.BarChartCard
 import com.example.core.design.FocusNestEmptyState
 import com.example.core.design.MetricTile
 import com.example.core.design.SanctuaryCard
 import com.example.core.design.SectionHeader
+import com.example.domain.model.AmbientSoundType
 import com.example.domain.model.FocusTimeUtils
 import com.example.domain.model.SessionType
 import com.example.domain.model.TimerMode
@@ -78,7 +78,7 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun FocusScreen(
   settings: FocusNestSettings,
@@ -95,6 +95,7 @@ fun FocusScreen(
   onExtendTimer: (Int) -> Unit = {},
   onRestartTimer: () -> Unit = {},
   onSkipBreak: () -> Unit = {},
+  onUpdateAmbientSound: (AmbientSoundType, Float) -> Unit = { _, _ -> },
 ) {
   var selectedMode by rememberSaveable { mutableStateOf(timerState.mode) }
   var selectedType by rememberSaveable { mutableStateOf(timerState.sessionType) }
@@ -149,18 +150,14 @@ fun FocusScreen(
 
   val timeFmt = remember { DateTimeFormatter.ofPattern("HH:mm") }
 
-  LazyColumn(
-    modifier = Modifier.fillMaxSize(),
-    contentPadding = PaddingValues(16.dp),
-    verticalArrangement = Arrangement.spacedBy(14.dp),
-  ) {
-    item {
+  AdaptiveTwoPane(
+    headerContent = {
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
           Text("Focus Sanctuary", style = MaterialTheme.typography.headlineMedium)
           Text(
             "Reboot-persistent Pomodoro, Countdown & Stopwatch",
@@ -175,10 +172,10 @@ fun FocusScreen(
           Icon(Icons.Default.Tune, contentDescription = "Configure Pomodoro")
         }
       }
-    }
-
+    },
+    primaryPane = {
     item {
-      TabRow(selectedTabIndex = selectedMode.ordinal) {
+      PrimaryTabRow(selectedTabIndex = activeMode.ordinal) {
         TimerMode.entries.forEach { mode ->
           Tab(
             selected = activeMode == mode,
@@ -379,6 +376,53 @@ fun FocusScreen(
       }
     }
 
+    // Offline Synthesized Ambient Soundscape Console
+    item {
+      SanctuaryCard {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Default.GraphicEq, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Column(modifier = Modifier.weight(1f)) {
+              Text("Offline Ambient Soundscape", style = MaterialTheme.typography.titleMedium)
+              Text(
+                settings.ambientSoundType.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+          }
+          FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+          ) {
+            AmbientSoundType.entries.forEach { sound ->
+              FilterChip(
+                selected = settings.ambientSoundType == sound,
+                onClick = { onUpdateAmbientSound(sound, settings.ambientSoundVolume) },
+                label = { Text(sound.label) },
+                modifier = Modifier.testTag("focus_ambient_chip_${sound.name}"),
+              )
+            }
+          }
+          if (settings.ambientSoundType != AmbientSoundType.OFF) {
+            Text(
+              "Volume: ${(settings.ambientSoundVolume * 100).toInt()}% • Synthesized locally during Focus",
+              style = MaterialTheme.typography.labelMedium,
+              color = MaterialTheme.colorScheme.primary,
+            )
+            Slider(
+              value = settings.ambientSoundVolume,
+              onValueChange = { onUpdateAmbientSound(settings.ambientSoundType, it) },
+              valueRange = 0.05f..1f,
+              modifier = Modifier.testTag("focus_ambient_volume_slider"),
+            )
+          }
+        }
+      }
+    }
+    },
+    secondaryPane = {
+
     item {
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         MetricTile(
@@ -457,7 +501,8 @@ fun FocusScreen(
         }
       }
     }
-  }
+    },
+  )
 
   if (showPomodoroDialog) {
     var focusMin by remember { mutableIntStateOf(settings.pomodoroFocusMinutes) }

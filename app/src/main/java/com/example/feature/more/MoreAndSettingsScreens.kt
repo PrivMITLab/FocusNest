@@ -1,6 +1,8 @@
 package com.example.feature.more
 
 import android.Manifest
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,6 +12,8 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,16 +28,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import android.content.Context
-import android.content.ContextWrapper
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.NotificationsPaused
@@ -43,14 +45,17 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -69,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -76,6 +82,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.example.BuildConfig
 import com.example.R
 import com.example.core.common.OemCompatibilityHelper
 import com.example.core.common.QrCodeGenerator
@@ -90,9 +97,11 @@ import com.example.core.design.SanctuaryCard
 import com.example.core.design.SectionHeader
 import com.example.core.permissions.PermissionManager
 import com.example.domain.model.AccentPalette
+import com.example.domain.model.BedtimeChecklistDefaults
 import com.example.domain.model.FocusTimeUtils
 import com.example.domain.model.PermissionSnapshot
 import com.example.domain.model.ThemeMode
+import com.example.domain.model.UpdateReleaseConfig
 import com.example.feature.challenges.OfflineQrBarcodeScannerDialog
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -149,173 +158,236 @@ fun MoreScreen(
   onClearUsageHistory: () -> Unit = {},
   onClearNotificationHistory: () -> Unit = {},
   onClearHabits: () -> Unit = {},
+  onToggleWindDownStep: (String) -> Unit = {},
+  onOpenReleases: () -> Unit = {},
 ) {
   var subPage by rememberSaveable { mutableStateOf(MoreSubPage.HUB) }
 
-  if (subPage != MoreSubPage.HUB) {
-    BackHandler { subPage = MoreSubPage.HUB }
-  }
+  BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    val isTwoPane = maxWidth >= 720.dp
 
-  when (subPage) {
-    MoreSubPage.HUB -> {
-      LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-      ) {
-        item {
-          Text("More & Sanctuary Controls", style = MaterialTheme.typography.headlineMedium)
-          Text(
-            "NFC/QR tokens, Invincible Mode, Mindful Tools, Permissions & Backups",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+    if (!isTwoPane && subPage != MoreSubPage.HUB) {
+      BackHandler { subPage = MoreSubPage.HUB }
+    }
+
+    @Composable
+    fun RenderDetailPane(target: MoreSubPage, showBack: Boolean) {
+      val backAction: (() -> Unit)? = if (showBack) ({ subPage = MoreSubPage.HUB }) else null
+      when (target) {
+        MoreSubPage.HUB,
+        MoreSubPage.VAULT ->
+          VaultSubPage(
+            permissions = permissions,
+            profiles = profiles,
+            nfcTags = nfcTags,
+            qrTokens = qrTokens,
+            lastScannedNfcUid = lastScannedNfcUid,
+            onBack = backAction,
+            onSaveNfcTag = onSaveNfcTag,
+            onDeleteNfcTag = onDeleteNfcTag,
+            onSaveQrToken = onSaveQrToken,
+            onDeleteQrToken = onDeleteQrToken,
           )
-        }
-        item {
-          MoreHubTile(
-            icon = Icons.Default.SelfImprovement,
-            title = "Daily Habits & Offline Streaks",
-            subtitle = if (habitsCount == 0) "Track screen-free routines & build daily streaks" else "$habitsCount active habits tracked offline",
-            tag = "more_tile_habits",
-            onClick = onNavigateToHabits,
+        MoreSubPage.INVINCIBLE ->
+          InvincibleSubPage(
+            settings = settings,
+            onBack = backAction,
+            onEnableInvincible = onEnableInvincible,
+            onRequestUnlock = onRequestInvincibleUnlock,
+            onCompleteDisable = onCompleteInvincibleDisable,
+            onEmergencyDisable = onEmergencyDisableInvincible,
+            onShowMessage = onShowMessage,
           )
-        }
-        item {
-          MoreHubTile(
-            icon = Icons.Default.Nfc,
-            title = "NFC, QR & Barcode Vault",
-            subtitle = "${nfcTags.size} NFC tags • ${qrTokens.size} QR/Barcode tokens",
-            tag = "more_tile_vault",
-            onClick = { subPage = MoreSubPage.VAULT },
+        MoreSubPage.MINDFUL ->
+          MindfulSubPage(
+            settings = settings,
+            permissions = permissions,
+            onBack = backAction,
+            onUpdateMindful = onUpdateMindful,
+            onToggleWindDownStep = onToggleWindDownStep,
+            onRefreshPermissions = onRefreshPermissions,
           )
-        }
-        item {
-          MoreHubTile(
-            icon = Icons.Default.Lock,
-            title = "Invincible Mode",
-            subtitle = if (settings.invincibleModeEnabled) "Active (${settings.invincibleDelayMinutes}m lock delay)" else "Off • Optional delayed rule lock & biometric gate",
-            tag = "more_tile_invincible",
-            onClick = { subPage = MoreSubPage.INVINCIBLE },
+        MoreSubPage.NOTIFICATIONS ->
+          NotificationsSubPage(
+            settings = settings,
+            permissions = permissions,
+            records = recentNotifications,
+            onBack = backAction,
+            onToggleFilter = { enabled ->
+              onUpdateMindful(null, null, null, null, null, null, enabled, null)
+            },
           )
-        }
-        item {
-          MoreHubTile(
-            icon = Icons.Default.Bedtime,
-            title = "Mindful Usage Tools",
-            subtitle = "Bedtime, Scheduled DND, Break Reminders & Cooldowns",
-            tag = "more_tile_mindful",
-            onClick = { subPage = MoreSubPage.MINDFUL },
+        MoreSubPage.PERMISSIONS ->
+          PermissionsSubPage(
+            permissions = permissions,
+            onBack = backAction,
+            onRefresh = onRefreshPermissions,
           )
-        }
-        item {
-          MoreHubTile(
-            icon = Icons.Default.NotificationsPaused,
-            title = "Notification Management",
-            subtitle = if (settings.notificationFilterEnabled) "Local focus filtering enabled" else "Optional local notification log & muting",
-            tag = "more_tile_notifications",
-            onClick = { subPage = MoreSubPage.NOTIFICATIONS },
+        MoreSubPage.SETTINGS ->
+          SettingsSubPage(
+            settings = settings,
+            focusGoal = focusGoal,
+            onBack = backAction,
+            onUpdateAppearance = onUpdateAppearance,
+            onUpdateGoals = onUpdateGoals,
+            onOpenReleases = onOpenReleases,
+            onBuildEncryptedBackup = onBuildEncryptedBackup,
+            onRestoreBackup = onRestoreBackup,
+            onClearUsageHistory = onClearUsageHistory,
+            onClearNotificationHistory = onClearNotificationHistory,
+            onClearHabits = onClearHabits,
+            onDeleteAllData = onDeleteAllData,
+            onShowMessage = onShowMessage,
           )
-        }
-        item {
-          MoreHubTile(
-            icon = Icons.Default.AdminPanelSettings,
-            title = "Permissions & Device Compatibility",
-            subtitle = "Transparent status for Android 11–16 & Realme/OEM optimization",
-            tag = "more_tile_permissions",
-            onClick = { subPage = MoreSubPage.PERMISSIONS },
+        MoreSubPage.PRIVACY_AND_ABOUT ->
+          PrivacyAndAboutSubPage(
+            onBack = backAction,
+            onOpenReleases = onOpenReleases,
           )
-        }
-        item {
-          MoreHubTile(
-            icon = Icons.Default.Settings,
-            title = "Settings, Goals & Encrypted Backup",
-            subtitle = "Theme, accents, goals, AES-256-GCM backup & restore",
-            tag = "more_tile_settings",
-            onClick = { subPage = MoreSubPage.SETTINGS },
-          )
-        }
-        item {
-          MoreHubTile(
-            icon = Icons.Default.Security,
-            title = "Privacy Policy, Threat Model & Licenses",
-            subtitle = "Offline-first guarantees & open-source credits",
-            tag = "more_tile_privacy",
-            onClick = { subPage = MoreSubPage.PRIVACY_AND_ABOUT },
-          )
-        }
       }
     }
 
-    MoreSubPage.VAULT ->
-      VaultSubPage(
-        permissions = permissions,
-        profiles = profiles,
-        nfcTags = nfcTags,
-        qrTokens = qrTokens,
-        lastScannedNfcUid = lastScannedNfcUid,
-        onBack = { subPage = MoreSubPage.HUB },
-        onSaveNfcTag = onSaveNfcTag,
-        onDeleteNfcTag = onDeleteNfcTag,
-        onSaveQrToken = onSaveQrToken,
-        onDeleteQrToken = onDeleteQrToken,
-      )
-
-    MoreSubPage.INVINCIBLE ->
-      InvincibleSubPage(
+    if (isTwoPane) {
+      val activeDetail = if (subPage == MoreSubPage.HUB) MoreSubPage.VAULT else subPage
+      Row(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        MoreHubList(
+          settings = settings,
+          habitsCount = habitsCount,
+          nfcCount = nfcTags.size,
+          qrCount = qrTokens.size,
+          selectedSubPage = activeDetail,
+          onSelect = { subPage = it },
+          onNavigateToHabits = onNavigateToHabits,
+          modifier = Modifier.weight(0.38f),
+        )
+        Box(modifier = Modifier.weight(0.62f)) {
+          RenderDetailPane(target = activeDetail, showBack = false)
+        }
+      }
+    } else if (subPage == MoreSubPage.HUB) {
+      MoreHubList(
         settings = settings,
-        onBack = { subPage = MoreSubPage.HUB },
-        onEnableInvincible = onEnableInvincible,
-        onRequestUnlock = onRequestInvincibleUnlock,
-        onCompleteDisable = onCompleteInvincibleDisable,
-        onEmergencyDisable = onEmergencyDisableInvincible,
-        onShowMessage = onShowMessage,
+        habitsCount = habitsCount,
+        nfcCount = nfcTags.size,
+        qrCount = qrTokens.size,
+        selectedSubPage = MoreSubPage.HUB,
+        onSelect = { subPage = it },
+        onNavigateToHabits = onNavigateToHabits,
+        modifier = Modifier.fillMaxSize(),
       )
+    } else {
+      RenderDetailPane(target = subPage, showBack = true)
+    }
+  }
+}
 
-    MoreSubPage.MINDFUL ->
-      MindfulSubPage(
-        settings = settings,
-        permissions = permissions,
-        onBack = { subPage = MoreSubPage.HUB },
-        onUpdateMindful = onUpdateMindful,
-        onRefreshPermissions = onRefreshPermissions,
+@Composable
+private fun MoreHubList(
+  settings: FocusNestSettings,
+  habitsCount: Int,
+  nfcCount: Int,
+  qrCount: Int,
+  selectedSubPage: MoreSubPage,
+  onSelect: (MoreSubPage) -> Unit,
+  onNavigateToHabits: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  LazyColumn(
+    modifier = modifier.fillMaxSize(),
+    contentPadding = PaddingValues(16.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    item {
+      Text("More & Sanctuary Controls", style = MaterialTheme.typography.headlineMedium)
+      Text(
+        "NFC/QR tokens, Invincible Mode, Mindful Tools, Permissions & Backups",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
-
-    MoreSubPage.NOTIFICATIONS ->
-      NotificationsSubPage(
-        settings = settings,
-        permissions = permissions,
-        records = recentNotifications,
-        onBack = { subPage = MoreSubPage.HUB },
-        onToggleFilter = { enabled ->
-          onUpdateMindful(null, null, null, null, null, null, enabled, null)
-        },
+    }
+    item {
+      MoreHubTile(
+        icon = Icons.Default.SelfImprovement,
+        title = "Daily Habits & Offline Streaks",
+        subtitle = if (habitsCount == 0) "Track screen-free routines & build daily streaks" else "$habitsCount active habits tracked offline",
+        tag = "more_tile_habits",
+        selected = false,
+        onClick = onNavigateToHabits,
       )
-
-    MoreSubPage.PERMISSIONS ->
-      PermissionsSubPage(
-        permissions = permissions,
-        onBack = { subPage = MoreSubPage.HUB },
-        onRefresh = onRefreshPermissions,
+    }
+    item {
+      MoreHubTile(
+        icon = Icons.Default.Nfc,
+        title = "NFC, QR & Barcode Vault",
+        subtitle = "$nfcCount NFC tags • $qrCount QR/Barcode tokens",
+        tag = "more_tile_vault",
+        selected = selectedSubPage == MoreSubPage.VAULT,
+        onClick = { onSelect(MoreSubPage.VAULT) },
       )
-
-    MoreSubPage.SETTINGS ->
-      SettingsSubPage(
-        settings = settings,
-        focusGoal = focusGoal,
-        onBack = { subPage = MoreSubPage.HUB },
-        onUpdateAppearance = onUpdateAppearance,
-        onUpdateGoals = onUpdateGoals,
-        onBuildEncryptedBackup = onBuildEncryptedBackup,
-        onRestoreBackup = onRestoreBackup,
-        onClearUsageHistory = onClearUsageHistory,
-        onClearNotificationHistory = onClearNotificationHistory,
-        onClearHabits = onClearHabits,
-        onDeleteAllData = onDeleteAllData,
-        onShowMessage = onShowMessage,
+    }
+    item {
+      MoreHubTile(
+        icon = Icons.Default.Lock,
+        title = "Invincible Mode",
+        subtitle = if (settings.invincibleModeEnabled) "Active (${settings.invincibleDelayMinutes}m lock delay)" else "Off • Optional delayed rule lock & biometric gate",
+        tag = "more_tile_invincible",
+        selected = selectedSubPage == MoreSubPage.INVINCIBLE,
+        onClick = { onSelect(MoreSubPage.INVINCIBLE) },
       )
-
-    MoreSubPage.PRIVACY_AND_ABOUT ->
-      PrivacyAndAboutSubPage(onBack = { subPage = MoreSubPage.HUB })
+    }
+    item {
+      MoreHubTile(
+        icon = Icons.Default.Bedtime,
+        title = "Mindful Usage Tools",
+        subtitle = "Bedtime Wind-Down, Scheduled DND, Break Reminders & Cooldowns",
+        tag = "more_tile_mindful",
+        selected = selectedSubPage == MoreSubPage.MINDFUL,
+        onClick = { onSelect(MoreSubPage.MINDFUL) },
+      )
+    }
+    item {
+      MoreHubTile(
+        icon = Icons.Default.NotificationsPaused,
+        title = "Notification Management",
+        subtitle = if (settings.notificationFilterEnabled) "Local focus filtering enabled" else "Optional local notification log & muting",
+        tag = "more_tile_notifications",
+        selected = selectedSubPage == MoreSubPage.NOTIFICATIONS,
+        onClick = { onSelect(MoreSubPage.NOTIFICATIONS) },
+      )
+    }
+    item {
+      MoreHubTile(
+        icon = Icons.Default.AdminPanelSettings,
+        title = "Permissions & Device Compatibility",
+        subtitle = "Transparent status for Android 11–16 & Realme/OEM optimization",
+        tag = "more_tile_permissions",
+        selected = selectedSubPage == MoreSubPage.PERMISSIONS,
+        onClick = { onSelect(MoreSubPage.PERMISSIONS) },
+      )
+    }
+    item {
+      MoreHubTile(
+        icon = Icons.Default.Settings,
+        title = "Settings, Updates & Encrypted Backup",
+        subtitle = "v${BuildConfig.VERSION_NAME}, theme, goals, AES-256-GCM backup & releases",
+        tag = "more_tile_settings",
+        selected = selectedSubPage == MoreSubPage.SETTINGS,
+        onClick = { onSelect(MoreSubPage.SETTINGS) },
+      )
+    }
+    item {
+      MoreHubTile(
+        icon = Icons.Default.Security,
+        title = "Privacy Policy, Threat Model & Licenses",
+        subtitle = "Offline-first guarantees & open-source credits",
+        tag = "more_tile_privacy",
+        selected = selectedSubPage == MoreSubPage.PRIVACY_AND_ABOUT,
+        onClick = { onSelect(MoreSubPage.PRIVACY_AND_ABOUT) },
+      )
+    }
   }
 }
 
@@ -325,9 +397,13 @@ private fun MoreHubTile(
   title: String,
   subtitle: String,
   tag: String,
+  selected: Boolean = false,
   onClick: () -> Unit,
 ) {
-  SanctuaryCard(modifier = Modifier.testTag(tag).clickable(onClick = onClick)) {
+  SanctuaryCard(
+    highlight = selected,
+    modifier = Modifier.testTag(tag).clickable(onClick = onClick),
+  ) {
     Row(
       modifier = Modifier.fillMaxWidth().padding(16.dp),
       verticalAlignment = Alignment.CenterVertically,
@@ -343,13 +419,15 @@ private fun MoreHubTile(
 }
 
 @Composable
-private fun SubPageHeader(title: String, onBack: () -> Unit) {
+private fun SubPageHeader(title: String, onBack: (() -> Unit)?) {
   Row(
-    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+    modifier = Modifier.fillMaxWidth().padding(horizontal = if (onBack != null) 8.dp else 16.dp, vertical = 8.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    IconButton(onClick = onBack, modifier = Modifier.testTag("subpage_back_btn")) {
-      Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+    if (onBack != null) {
+      IconButton(onClick = onBack, modifier = Modifier.testTag("subpage_back_btn")) {
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+      }
     }
     Text(title, style = MaterialTheme.typography.headlineMedium)
   }
@@ -363,7 +441,7 @@ private fun VaultSubPage(
   nfcTags: List<NfcTagEntity>,
   qrTokens: List<QrTokenEntity>,
   lastScannedNfcUid: String?,
-  onBack: () -> Unit,
+  onBack: (() -> Unit)?,
   onSaveNfcTag: (String, String, String, Long?, Int) -> Unit,
   onDeleteNfcTag: (NfcTagEntity) -> Unit,
   onSaveQrToken: (String, String, String, Long?, Boolean, Int) -> Unit,
@@ -576,7 +654,7 @@ private tailrec fun Context.findFragmentActivity(): FragmentActivity? =
 @Composable
 private fun InvincibleSubPage(
   settings: FocusNestSettings,
-  onBack: () -> Unit,
+  onBack: (() -> Unit)?,
   onEnableInvincible: (Int, Boolean, String) -> Unit,
   onRequestUnlock: () -> Unit,
   onCompleteDisable: () -> Boolean,
@@ -733,11 +811,19 @@ private fun InvincibleSubPage(
 private fun MindfulSubPage(
   settings: FocusNestSettings,
   permissions: PermissionSnapshot,
-  onBack: () -> Unit,
+  onBack: (() -> Unit)?,
   onUpdateMindful: (Boolean?, Int?, Int?, Boolean?, Boolean?, Int?, Boolean?, Int?) -> Unit,
+  onToggleWindDownStep: (String) -> Unit,
   onRefreshPermissions: () -> Unit,
 ) {
   val context = LocalContext.current
+  val todayKey = FocusTimeUtils.todayKey()
+  val completedTonight =
+    remember(settings.windDownDateKey, settings.windDownCompletedIds, todayKey) {
+      if (settings.windDownDateKey == todayKey) settings.windDownCompletedIds else emptySet()
+    }
+  val totalSteps = BedtimeChecklistDefaults.steps.size.coerceAtLeast(1)
+
   Column(modifier = Modifier.fillMaxSize()) {
     SubPageHeader("Mindful Usage Tools", onBack)
     LazyColumn(
@@ -777,10 +863,73 @@ private fun MindfulSubPage(
               )
             }
             Text(
-              "Android Grayscale Note: System-wide or per-app grayscale requires Android Digital Wellbeing Bedtime Mode or Developer Options on stock Android.",
+              "Android Grayscale Note: System-wide or per-app grayscale requires Android Digital Wellbeing Bedtime Mode or Display Color settings.",
               style = MaterialTheme.typography.bodyMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              OutlinedButton(
+                onClick = { PermissionManager.safeStartSettings(context, PermissionManager.displaySettingsIntent()) },
+                modifier = Modifier.weight(1f).testTag("mindful_display_settings_btn"),
+              ) {
+                Text("Display & Dim")
+              }
+              OutlinedButton(
+                onClick = { PermissionManager.safeStartSettings(context, PermissionManager.nightDisplaySettingsIntent()) },
+                modifier = Modifier.weight(1f).testTag("mindful_night_light_btn"),
+              ) {
+                Text("Night Light")
+              }
+            }
+          }
+        }
+      }
+
+      item {
+        SanctuaryCard(highlight = completedTonight.size == BedtimeChecklistDefaults.steps.size) {
+          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Text("Evening Wind-Down Checklist", style = MaterialTheme.typography.titleMedium)
+              Text(
+                "${completedTonight.size} / $totalSteps tonight",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+              )
+            }
+            LinearProgressIndicator(
+              progress = { completedTonight.size.toFloat() / totalSteps.toFloat() },
+              modifier = Modifier.fillMaxWidth(),
+            )
+            BedtimeChecklistDefaults.steps.forEach { step ->
+              val checked = step.id in completedTonight
+              Row(
+                modifier =
+                  Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleWindDownStep(step.id) }
+                    .padding(vertical = 4.dp)
+                    .testTag("wind_down_step_${step.id}"),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Checkbox(
+                  checked = checked,
+                  onCheckedChange = { onToggleWindDownStep(step.id) },
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(step.title, style = MaterialTheme.typography.titleSmall)
+                  Text(
+                    step.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+              }
+            }
           }
         }
       }
@@ -821,7 +970,7 @@ private fun NotificationsSubPage(
   settings: FocusNestSettings,
   permissions: PermissionSnapshot,
   records: List<NotificationRecordEntity>,
-  onBack: () -> Unit,
+  onBack: (() -> Unit)?,
   onToggleFilter: (Boolean) -> Unit,
 ) {
   val context = LocalContext.current
@@ -890,7 +1039,7 @@ private fun NotificationsSubPage(
 @Composable
 private fun PermissionsSubPage(
   permissions: PermissionSnapshot,
-  onBack: () -> Unit,
+  onBack: (() -> Unit)?,
   onRefresh: () -> Unit,
 ) {
   val context = LocalContext.current
@@ -989,9 +1138,10 @@ private fun PermissionRow(title: String, granted: Boolean, onConfigure: () -> Un
 private fun SettingsSubPage(
   settings: FocusNestSettings,
   focusGoal: FocusGoalEntity,
-  onBack: () -> Unit,
+  onBack: (() -> Unit)?,
   onUpdateAppearance: (ThemeMode?, AccentPalette?, Boolean?, String?) -> Unit,
   onUpdateGoals: (Int, Int, Int, Int) -> Unit,
+  onOpenReleases: () -> Unit,
   onBuildEncryptedBackup: suspend (String) -> String,
   onRestoreBackup: suspend (String, String?) -> Result<Int>,
   onClearUsageHistory: () -> Unit,
@@ -1166,6 +1316,39 @@ private fun SettingsSubPage(
       }
 
       item {
+        SanctuaryCard(highlight = true) {
+          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+              Spacer(modifier = Modifier.width(8.dp))
+              Text("App Version & Offline Updates", style = MaterialTheme.typography.titleMedium)
+            }
+            Text(
+              "Installed: v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}) • Repo: ${UpdateReleaseConfig.GITHUB_OWNER_REPO}",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+              "FocusNest declares zero INTERNET permission and never polls servers silently in the background. Checking for updates opens the public GitHub Releases page in your browser.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            UpdateReleaseConfig.latestHighlights.forEach { bullet ->
+              Text("• $bullet", style = MaterialTheme.typography.bodySmall)
+            }
+            Button(
+              onClick = onOpenReleases,
+              modifier = Modifier.fillMaxWidth().testTag("more_check_updates_btn"),
+            ) {
+              Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Check Releases on GitHub")
+            }
+          }
+        }
+      }
+
+      item {
         Button(
           onClick = { showDeleteDialog = true },
           colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
@@ -1228,7 +1411,13 @@ private fun SettingsSubPage(
 }
 
 @Composable
-private fun PrivacyAndAboutSubPage(onBack: () -> Unit) {
+private fun PrivacyAndAboutSubPage(
+  onBack: (() -> Unit)?,
+  onOpenReleases: () -> Unit,
+) {
+  val isDarkSurface = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+  val logoRes = if (isDarkSurface) R.drawable.ic_logo_dark else R.drawable.ic_logo_light
+
   Column(modifier = Modifier.fillMaxSize()) {
     SubPageHeader("Privacy, Security & Credits", onBack)
     LazyColumn(
@@ -1241,17 +1430,25 @@ private fun PrivacyAndAboutSubPage(onBack: () -> Unit) {
           Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
               Image(
-                painter = painterResource(R.drawable.ic_logo_light),
+                painter = painterResource(logoRes),
                 contentDescription = "FocusNest brand artwork",
                 modifier = Modifier.size(44.dp),
               )
               Spacer(modifier = Modifier.width(10.dp))
-              Text("FocusNest v1.1.0 • MIT Open Source", style = MaterialTheme.typography.titleMedium)
+              Text("FocusNest v${BuildConfig.VERSION_NAME} • MIT Open Source", style = MaterialTheme.typography.titleMedium)
             }
             Text(
               "100% Free • No Ads • No Trackers • No Cloud Accounts • No Internet Permission.",
               style = MaterialTheme.typography.bodyLarge,
             )
+            OutlinedButton(
+              onClick = onOpenReleases,
+              modifier = Modifier.fillMaxWidth().testTag("privacy_check_updates_btn"),
+            ) {
+              Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("View Official GitHub Releases")
+            }
           }
         }
       }

@@ -5,11 +5,13 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.domain.model.AccentPalette
+import com.example.domain.model.AmbientSoundType
 import com.example.domain.model.SessionType
 import com.example.domain.model.ThemeMode
 import com.example.domain.model.TimerMode
@@ -52,6 +54,13 @@ data class FocusNestSettings(
   val reelsReductionEnabled: Boolean = false,
   val notificationFilterEnabled: Boolean = false,
   val appOpeningCooldownSeconds: Int = 10,
+  val ambientSoundType: AmbientSoundType = AmbientSoundType.OFF,
+  val ambientSoundVolume: Float = 0.45f,
+  val launchPauseEnabled: Boolean = false,
+  val launchPauseSeconds: Int = 8,
+  val launchPausePackages: Set<String> = emptySet(),
+  val windDownDateKey: String = "",
+  val windDownCompletedIds: Set<String> = emptySet(),
 )
 
 data class PersistedTimerState(
@@ -106,6 +115,13 @@ class FocusNestPreferences(private val context: Context) {
     val REELS_REDUCTION_ENABLED = booleanPreferencesKey("reels_reduction_enabled")
     val NOTIFICATION_FILTER_ENABLED = booleanPreferencesKey("notification_filter_enabled")
     val APP_COOLDOWN_SEC = intPreferencesKey("app_cooldown_sec")
+    val AMBIENT_SOUND_TYPE = stringPreferencesKey("ambient_sound_type")
+    val AMBIENT_SOUND_VOLUME = floatPreferencesKey("ambient_sound_volume")
+    val LAUNCH_PAUSE_ENABLED = booleanPreferencesKey("launch_pause_enabled")
+    val LAUNCH_PAUSE_SECONDS = intPreferencesKey("launch_pause_seconds")
+    val LAUNCH_PAUSE_PACKAGES = stringPreferencesKey("launch_pause_packages")
+    val WINDDOWN_DATE_KEY = stringPreferencesKey("winddown_date_key")
+    val WINDDOWN_COMPLETED_IDS = stringPreferencesKey("winddown_completed_ids")
 
     // Active timer persistence across process kills & reboots
     val TIMER_RUNNING = booleanPreferencesKey("timer_running")
@@ -166,6 +182,25 @@ class FocusNestPreferences(private val context: Context) {
         reelsReductionEnabled = prefs[Keys.REELS_REDUCTION_ENABLED] ?: false,
         notificationFilterEnabled = prefs[Keys.NOTIFICATION_FILTER_ENABLED] ?: false,
         appOpeningCooldownSeconds = prefs[Keys.APP_COOLDOWN_SEC] ?: 10,
+        ambientSoundType =
+          runCatching { AmbientSoundType.valueOf(prefs[Keys.AMBIENT_SOUND_TYPE] ?: "OFF") }
+            .getOrDefault(AmbientSoundType.OFF),
+        ambientSoundVolume = (prefs[Keys.AMBIENT_SOUND_VOLUME] ?: 0.45f).coerceIn(0f, 1f),
+        launchPauseEnabled = prefs[Keys.LAUNCH_PAUSE_ENABLED] ?: false,
+        launchPauseSeconds = (prefs[Keys.LAUNCH_PAUSE_SECONDS] ?: 8).coerceIn(5, 15),
+        launchPausePackages =
+          (prefs[Keys.LAUNCH_PAUSE_PACKAGES] ?: "")
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet(),
+        windDownDateKey = prefs[Keys.WINDDOWN_DATE_KEY] ?: "",
+        windDownCompletedIds =
+          (prefs[Keys.WINDDOWN_COMPLETED_IDS] ?: "")
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet(),
       )
     }
 
@@ -239,6 +274,25 @@ class FocusNestPreferences(private val context: Context) {
           reelsReductionEnabled = prefs[Keys.REELS_REDUCTION_ENABLED] ?: false,
           notificationFilterEnabled = prefs[Keys.NOTIFICATION_FILTER_ENABLED] ?: false,
           appOpeningCooldownSeconds = prefs[Keys.APP_COOLDOWN_SEC] ?: 10,
+          ambientSoundType =
+            runCatching { AmbientSoundType.valueOf(prefs[Keys.AMBIENT_SOUND_TYPE] ?: "OFF") }
+              .getOrDefault(AmbientSoundType.OFF),
+          ambientSoundVolume = (prefs[Keys.AMBIENT_SOUND_VOLUME] ?: 0.45f).coerceIn(0f, 1f),
+          launchPauseEnabled = prefs[Keys.LAUNCH_PAUSE_ENABLED] ?: false,
+          launchPauseSeconds = (prefs[Keys.LAUNCH_PAUSE_SECONDS] ?: 8).coerceIn(5, 15),
+          launchPausePackages =
+            (prefs[Keys.LAUNCH_PAUSE_PACKAGES] ?: "")
+              .split(",")
+              .map { it.trim() }
+              .filter { it.isNotEmpty() }
+              .toSet(),
+          windDownDateKey = prefs[Keys.WINDDOWN_DATE_KEY] ?: "",
+          windDownCompletedIds =
+            (prefs[Keys.WINDDOWN_COMPLETED_IDS] ?: "")
+              .split(",")
+              .map { it.trim() }
+              .filter { it.isNotEmpty() }
+              .toSet(),
         )
       val next = transform(current)
       prefs[Keys.ONBOARDING_COMPLETED] = next.onboardingCompleted
@@ -272,6 +326,13 @@ class FocusNestPreferences(private val context: Context) {
       prefs[Keys.REELS_REDUCTION_ENABLED] = next.reelsReductionEnabled
       prefs[Keys.NOTIFICATION_FILTER_ENABLED] = next.notificationFilterEnabled
       prefs[Keys.APP_COOLDOWN_SEC] = next.appOpeningCooldownSeconds
+      prefs[Keys.AMBIENT_SOUND_TYPE] = next.ambientSoundType.name
+      prefs[Keys.AMBIENT_SOUND_VOLUME] = next.ambientSoundVolume.coerceIn(0f, 1f)
+      prefs[Keys.LAUNCH_PAUSE_ENABLED] = next.launchPauseEnabled
+      prefs[Keys.LAUNCH_PAUSE_SECONDS] = next.launchPauseSeconds.coerceIn(5, 15)
+      prefs[Keys.LAUNCH_PAUSE_PACKAGES] = next.launchPausePackages.joinToString(",")
+      prefs[Keys.WINDDOWN_DATE_KEY] = next.windDownDateKey
+      prefs[Keys.WINDDOWN_COMPLETED_IDS] = next.windDownCompletedIds.joinToString(",")
     }
   }
 

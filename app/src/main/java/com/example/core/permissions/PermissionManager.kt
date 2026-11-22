@@ -15,6 +15,7 @@ import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import com.example.domain.model.PermissionSnapshot
 import com.example.service.AppBlockerAccessibilityService
 import com.example.service.FocusNestVpnService
@@ -154,9 +155,10 @@ object PermissionManager {
       addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
-  fun batteryOptimizationIntent(context: Context): Intent =
-    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-      data = Uri.parse("package:${context.packageName}")
+  fun batteryOptimizationIntent(
+    @Suppress("UNUSED_PARAMETER") context: Context,
+  ): Intent =
+    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
       addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
@@ -165,11 +167,34 @@ object PermissionManager {
       addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
+  fun displaySettingsIntent(): Intent =
+    Intent(Settings.ACTION_DISPLAY_SETTINGS).apply {
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+  fun nightDisplaySettingsIntent(): Intent =
+    Intent(Settings.ACTION_NIGHT_DISPLAY_SETTINGS).apply {
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
   fun appDetailsIntent(context: Context): Intent =
     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
       data = Uri.fromParts("package", context.packageName, null)
       addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+
+  fun openExternalUrl(context: Context, url: String): Boolean {
+    return try {
+      val intent =
+        Intent(Intent.ACTION_VIEW, url.toUri()).apply {
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+      context.startActivity(intent)
+      true
+    } catch (_: Exception) {
+      false
+    }
+  }
 
   fun safeStartSettings(context: Context, primaryIntent: Intent, fallbackIntent: Intent? = null) {
     try {

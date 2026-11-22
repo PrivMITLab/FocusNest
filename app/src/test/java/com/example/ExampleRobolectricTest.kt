@@ -122,4 +122,72 @@ class ExampleRobolectricTest {
     assertEquals("होम", hiCtx.getString(R.string.nav_home))
     assertEquals("दैनिक और साप्ताहिक आदतें", hiCtx.getString(R.string.habits_title))
   }
+
+  @Test
+  fun launchPauseReportCardWindDownAndReleases_renderAndInteractInUi() {
+    val app = ApplicationProvider.getApplicationContext<FocusNestApplication>()
+    val vm = FocusNestViewModel(app)
+
+    composeTestRule.setContent {
+      FocusNestAppRoot(viewModel = vm, useNavRail = false)
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("onboarding_skip_all_btn").performClick()
+    composeTestRule.waitUntil(timeoutMillis = 5_000) {
+      composeTestRule.onAllNodesWithText("Today's Screen Time").fetchSemanticsNodes().isNotEmpty()
+    }
+
+    // Focus tab has Offline Ambient Soundscapes
+    composeTestRule.onNodeWithTag("nav_focus").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText("Offline Ambient Soundscape").performScrollTo().assertIsDisplayed()
+
+    // Blocker tab has Mindful Launch Pause Curtain
+    composeTestRule.onNodeWithTag("nav_blocker").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("blocker_launch_pause_card").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("blocker_launch_pause_switch").performClick()
+
+    // Insights tab has Weekly Wellbeing Report Card Print button
+    composeTestRule.onNodeWithTag("nav_insights").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("insights_print_btn").performScrollTo().assertIsDisplayed()
+
+    // More -> Mindful Usage Tools -> Evening Wind-Down Checklist
+    composeTestRule.onNodeWithTag("nav_more").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("more_tile_mindful").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("wind_down_step_charger_away").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("subpage_back_btn").performClick()
+
+    // More -> Settings -> Check Releases on GitHub
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("more_tile_settings").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("more_check_updates_btn").performScrollTo().assertIsDisplayed()
+  }
+
+  @Test
+  @Config(qualifiers = "w900dp-h1000dp")
+  fun tabletWidth_rendersTwoPaneNavigationRailAndCanonicalLayouts() {
+    val app = ApplicationProvider.getApplicationContext<FocusNestApplication>()
+    val vm = FocusNestViewModel(app)
+
+    composeTestRule.setContent {
+      FocusNestAppRoot(viewModel = vm, useNavRail = true)
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("onboarding_skip_all_btn").performClick()
+    composeTestRule.waitUntil(timeoutMillis = 5_000) {
+      composeTestRule.onAllNodesWithText("Today's Screen Time").fetchSemanticsNodes().isNotEmpty()
+    }
+
+    composeTestRule.onNodeWithTag("nav_more").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText("More & Sanctuary Controls").assertIsDisplayed()
+    // On two-pane width (>= 720dp), detail pane (Vault by default) is simultaneously visible beside Hub
+    composeTestRule.onNodeWithText("Personal QR Codes & Barcodes (100% Offline)").assertIsDisplayed()
+  }
 }

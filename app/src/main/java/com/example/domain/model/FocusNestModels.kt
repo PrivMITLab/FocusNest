@@ -140,6 +140,81 @@ enum class LimitThresholdLevel {
   WARN_100,
 }
 
+enum class AmbientSoundType(val label: String, val description: String) {
+  OFF("Off", "Silent focus session"),
+  BROWN_NOISE("Brown Noise", "Warm low-frequency blanket"),
+  SOFT_RAIN("Soft Rain", "Gentle offline rainfall"),
+  WARM_DRONE("Warm Drone", "Calming ambient fifths"),
+  STUDY_MURMUR("Study Wash", "Soft filtered room hush"),
+}
+
+data class WindDownStep(
+  val id: String,
+  val title: String,
+  val subtitle: String,
+)
+
+object BedtimeChecklistDefaults {
+  val steps =
+    listOf(
+      WindDownStep(
+        id = "charger_away",
+        title = "Dock phone charger away from bed",
+        subtitle = "Keep night scrolling out of arm's reach",
+      ),
+      WindDownStep(
+        id = "grayscale_night",
+        title = "Enable Bedtime Grayscale / Night Light",
+        subtitle = "Reduce dopamine stimulation and blue glare",
+      ),
+      WindDownStep(
+        id = "dim_alerts",
+        title = "Dim brightness & silence non-urgent alerts",
+        subtitle = "Protect uninterrupted restorative sleep",
+      ),
+      WindDownStep(
+        id = "tomorrow_intention",
+        title = "Set tomorrow's first mindful morning focus",
+        subtitle = "Decide what matters before waking up",
+      ),
+    )
+}
+
+object LaunchPauseCoordinator {
+  const val DEFAULT_COOLDOWN_MS: Long = 5 * 60_000L
+
+  fun shouldTriggerPause(
+    packageName: String,
+    launchPauseEnabled: Boolean,
+    pausedPackages: Set<String>,
+    lastProceedEpochMs: Long?,
+    nowEpochMs: Long,
+    cooldownMs: Long = DEFAULT_COOLDOWN_MS,
+  ): Boolean {
+    if (!launchPauseEnabled) return false
+    if (packageName !in pausedPackages) return false
+    if (lastProceedEpochMs != null && (nowEpochMs - lastProceedEpochMs) < cooldownMs) {
+      return false
+    }
+    return true
+  }
+}
+
+object UpdateReleaseConfig {
+  const val GITHUB_OWNER_REPO = "OWNER/FocusNest"
+  const val REPO_URL = "https://github.com/$GITHUB_OWNER_REPO"
+  const val RELEASES_URL = "https://github.com/$GITHUB_OWNER_REPO/releases/latest"
+  const val PAGES_URL = "https://OWNER.github.io/FocusNest/"
+
+  val latestHighlights =
+    listOf(
+      "Adaptive foldable & tablet two-pane Sanctuary layouts",
+      "Offline synthesized ambient focus soundscapes",
+      "Mindful app-launch pause curtain with breathing delay",
+      "Weekly printable/PDF wellbeing report card & bedtime checklist",
+    )
+}
+
 object UnlockChallengeEngine {
   val predefinedIntentionReasons =
     listOf(

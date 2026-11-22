@@ -8,15 +8,21 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -46,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
 import com.example.ui.theme.JetBrainsMonoFontFamily
 
 @Composable
@@ -324,6 +331,7 @@ fun FocusNestEmptyState(
   actionTestTag: String = "empty_state_action",
   onAction: (() -> Unit)? = null,
   modifier: Modifier = Modifier,
+  @androidx.annotation.DrawableRes illustrationRes: Int? = null,
 ) {
   val primary = MaterialTheme.colorScheme.primary
   val tertiary = MaterialTheme.colorScheme.tertiary
@@ -332,29 +340,37 @@ fun FocusNestEmptyState(
       modifier = Modifier.fillMaxWidth().padding(24.dp),
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      Box(contentAlignment = Alignment.Center, modifier = Modifier.size(92.dp)) {
-        Canvas(modifier = Modifier.size(92.dp)) {
-          drawCircle(
-            color = primary.copy(alpha = 0.12f),
-            radius = size.minDimension / 2f,
-          )
-          drawCircle(
-            color = tertiary.copy(alpha = 0.16f),
-            radius = size.minDimension * 0.36f,
-          )
-        }
-        Surface(
-          shape = CircleShape,
-          color = MaterialTheme.colorScheme.primaryContainer,
-          modifier = Modifier.size(52.dp),
-        ) {
-          Box(contentAlignment = Alignment.Center) {
-            Icon(
-              imageVector = icon,
-              contentDescription = title,
-              tint = MaterialTheme.colorScheme.onPrimaryContainer,
-              modifier = Modifier.size(28.dp),
+      if (illustrationRes != null) {
+        androidx.compose.foundation.Image(
+          painter = androidx.compose.ui.res.painterResource(illustrationRes),
+          contentDescription = title,
+          modifier = Modifier.size(96.dp),
+        )
+      } else {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(92.dp)) {
+          Canvas(modifier = Modifier.size(92.dp)) {
+            drawCircle(
+              color = primary.copy(alpha = 0.12f),
+              radius = size.minDimension / 2f,
             )
+            drawCircle(
+              color = tertiary.copy(alpha = 0.16f),
+              radius = size.minDimension * 0.36f,
+            )
+          }
+          Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(52.dp),
+          ) {
+            Box(contentAlignment = Alignment.Center) {
+              Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(28.dp),
+              )
+            }
           }
         }
       }
@@ -438,7 +454,7 @@ fun InstalledAppIcon(
       runCatching {
         val drawable = context.packageManager.getApplicationIcon(packageName)
         val px = 96
-        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val bmp = createBitmap(px, px)
         val canvas = android.graphics.Canvas(bmp)
         drawable.setBounds(0, 0, canvas.width, canvas.height)
         drawable.draw(canvas)
@@ -464,6 +480,75 @@ fun InstalledAppIcon(
           style = MaterialTheme.typography.titleMedium,
           color = MaterialTheme.colorScheme.onPrimaryContainer,
         )
+      }
+    }
+  }
+}
+
+/**
+ * Responsive container switching cleanly between single-column centered scrolling on compact phones
+ * and side-by-side canonical two-pane columns on foldables, tablets, and desktop/ChromeOS widths.
+ */
+@Composable
+fun AdaptiveTwoPane(
+  modifier: Modifier = Modifier,
+  breakpoint: Dp = 720.dp,
+  listTestTag: String? = null,
+  headerContent: (@Composable () -> Unit)? = null,
+  primaryWeight: Float = 0.48f,
+  secondaryWeight: Float = 0.52f,
+  primaryPane: LazyListScope.() -> Unit,
+  secondaryPane: LazyListScope.() -> Unit,
+) {
+  BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    val twoPane = maxWidth >= breakpoint
+    if (twoPane) {
+      Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        if (headerContent != null) {
+          Spacer(modifier = Modifier.height(12.dp))
+          headerContent()
+          Spacer(modifier = Modifier.height(12.dp))
+        }
+        Row(
+          modifier = Modifier.fillMaxSize(),
+          horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+          LazyColumn(
+            modifier =
+              Modifier
+                .weight(primaryWeight)
+                .let { if (listTestTag != null) it.testTag(listTestTag) else it },
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            content = primaryPane,
+          )
+          LazyColumn(
+            modifier = Modifier.weight(secondaryWeight),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            content = secondaryPane,
+          )
+        }
+      }
+    } else {
+      LazyColumn(
+        modifier =
+          Modifier
+            .fillMaxSize()
+            .let { if (listTestTag != null) it.testTag(listTestTag) else it },
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+      ) {
+        if (headerContent != null) {
+          item {
+            Box(modifier = Modifier.fillMaxWidth().widthIn(max = 640.dp)) {
+              headerContent()
+            }
+          }
+        }
+        primaryPane()
+        secondaryPane()
       }
     }
   }

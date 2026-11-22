@@ -1,10 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="focusnest_emerald_deep">#0E2D27</color>
-    <color name="focusnest_mint">#7CE3C4</color>
-    <color name="focusnest_amber">#F4B860</color>
-    <color name="focusnest_surface_light">#F6F8F6</color>
-    <color name="focusnest_surface_dark">#0D1614</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
 </resources>

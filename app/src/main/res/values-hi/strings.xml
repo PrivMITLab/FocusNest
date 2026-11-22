@@ -17,4 +17,13 @@
     <string name="widget_screen_time_desc">FocusNest से आज का स्क्रीन टाइम और दैनिक लक्ष्य प्रगति दिखाता है।</string>
     <string name="widget_focus_timer_desc">FocusNest फ़ोकस सत्र तुरंत देखें या शुरू करें।</string>
     <string name="widget_blocking_profile_desc">सक्रिय ब्लॉकिंग प्रोफ़ाइल स्थिति और ब्लॉक किए गए प्रयास दिखाता है।</string>
+    <string name="widget_shield_header">FOCUSNEST • शील्ड</string>
+    <string name="widget_no_active_profile">कोई सक्रिय प्रोफ़ाइल नहीं</string>
+    <string name="widget_zero_attempts">आज 0 ब्लॉक प्रयास</string>
+    <string name="widget_timer_header">FOCUSNEST • टाइमर</string>
+    <string name="widget_timer_ready_default">तैयार • 25m</string>
+    <string name="widget_quick_focus">त्वरित फ़ोकस</string>
+    <string name="widget_screen_time_header">FOCUSNEST • स्क्रीन टाइम</string>
+    <string name="widget_zero_minutes">0m</string>
+    <string name="widget_goal_default">लक्ष्य: 3h 0m</string>
 </resources>

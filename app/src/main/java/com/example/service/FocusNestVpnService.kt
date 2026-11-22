@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
-import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
 import com.example.FocusNestApplication
@@ -157,11 +156,7 @@ class FocusNestVpnService : VpnService() {
 
     fun start(context: Context) {
       val intent = Intent(context, FocusNestVpnService::class.java).apply { action = ACTION_START }
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent)
-      } else {
-        context.startService(intent)
-      }
+      context.startForegroundService(intent)
     }
 
     fun stop(context: Context) {

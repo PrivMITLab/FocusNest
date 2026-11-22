@@ -2,6 +2,7 @@ package com.example.service
 
 import android.app.Notification
 import android.content.pm.PackageManager
+import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.example.FocusNestApplication
@@ -58,7 +59,13 @@ class FocusNotificationService : NotificationListenerService() {
 
   private fun resolveLabel(pkg: String): String {
     return try {
-      val info = packageManager.getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(0))
+      val info =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          packageManager.getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(0))
+        } else {
+          @Suppress("DEPRECATION")
+          packageManager.getApplicationInfo(pkg, 0)
+        }
       packageManager.getApplicationLabel(info).toString()
     } catch (_: Exception) {
       pkg.substringAfterLast('.')
